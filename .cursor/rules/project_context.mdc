@@ -69,5 +69,6 @@ alwaysApply: true
 
 ### Language
 
-Always use English in generated files
+- Always use English in generated files
+- Always use English in commit messages
 

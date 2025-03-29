@@ -26,6 +26,13 @@ func New(token string, channelID int64) (*Bot, error) {
 				return
 			}
 
+			// First check for media group
+			if update.Message.MediaGroupID != "" {
+				handler.HandleMediaGroup(ctx, b, update)
+				return
+			}
+
+			// Then check for commands
 			switch update.Message.Text {
 			case "/start":
 				handler.HandleStart(ctx, b, update)
@@ -35,6 +42,12 @@ func New(token string, channelID int64) (*Bot, error) {
 				handler.HandleStatus(ctx, b, update)
 			case "/version":
 				handler.HandleVersion(ctx, b, update)
+			case "/caption":
+				handler.HandleCaption(ctx, b, update)
+			case "/showcaption":
+				handler.HandleShowCaption(ctx, b, update)
+			case "/clearcaption":
+				handler.HandleClearCaption(ctx, b, update)
 			default:
 				if update.Message.Photo != nil {
 					handler.HandlePhoto(ctx, b, update)
