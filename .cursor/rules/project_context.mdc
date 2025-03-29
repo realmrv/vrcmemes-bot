@@ -1,0 +1,73 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Rules for Cursor AI in a Golang Project
+
+#### 1. Autocompletion According to Golang Style
+- **Variable and Function Names**: Use `camelCase` style (e.g., `getUser`, `processData`) when suggesting names.
+- **Type Names**: Use `PascalCase` style (e.g., `UserData`, `LoggerInterface`) for structs and interfaces.
+- **Context Awareness**: Analyze the code context (data types, scope, dependencies) to provide autocompletion that fits the current situation.
+
+#### 2. Generating Templates for Error Handling
+- **Error Checks**: For functions returning an `error`, automatically insert:
+  ```go
+  if err != nil {
+      return err
+  }
+  ```
+- **Error-Prone Operations**: When generating code for operations that might fail (e.g., file I/O, networking), always include explicit error handling.
+
+#### 3. Automatic Code Documentation
+- **Function Comments**: Add a comment before new functions or methods in this format:
+  ```go
+  // FunctionName describes the purpose of the function.
+  func FunctionName() {
+      // ...
+  }
+  ```
+- **Explanatory Notes**: Suggest clarifying comments for complex or non-obvious code sections based on logic analysis.
+
+#### 4. Support for Navigation and Package Imports
+- **Auto-Imports**: Suggest adding imports (e.g., `import "fmt"` for `fmt.Println`) when using external package functions or types.
+- **Navigation**: Enable autocompletion for jumping to definitions of functions, types, and variables within the project.
+- **Project Structure**: Respect the project’s package layout (e.g., `main`, `models`, `utils`) when suggesting imports or navigation.
+
+#### 5. Assistance with Writing Tests
+- **Test Template**: Use this standard format for test functions:
+  ```go
+  func TestFunctionName(t *testing.T) {
+      // ...
+  }
+  ```
+- **Testing Tools**: Offer autocompletion for tools like `t.Errorf` and mocks if applicable.
+- **Test Suggestions**: If a function is added without a test, propose creating a matching test function.
+
+#### 6. Adherence to Golang Best Practices
+- **No Global Variables**: Favor dependency injection via function parameters over global variables.
+- **Minimal Interfaces**: Generate concise and explicit interface contracts.
+- **Code Quality**: Suggest running `gofmt` for formatting and `golint` for style checks after code changes.
+
+#### 7. Context-Dependent Suggestions
+- **Context Analysis**: Identify the current task (e.g., HTTP handling, database operations) and suggest relevant templates or functions (e.g., `http.Handler` for web servers).
+- **Dependency Compatibility**: Propose code that aligns with the project’s existing libraries and dependencies.
+
+#### 8. Flexibility and Adaptability
+- **Project Settings**: Adapt to custom project configurations if rules are modified or disabled.
+- **Feedback Learning**: Refine suggestions based on codebase updates and developer feedback.
+
+---
+
+### Implementation and Behavior
+- **Core Principle**: Prioritize simplicity and clarity, reflecting Golang’s philosophy.
+- **Error Handling**: Never omit error checks in generated code.
+- **Tool Integration**: Collaborate with `gofmt` and `golint`, recommending their use after modifications.
+- **Version Awareness**: Stay updated with the latest Golang releases and adjust templates accordingly.
+
+---
+
+### Language
+
+Always use English in generated files
+
