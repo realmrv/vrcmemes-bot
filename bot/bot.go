@@ -164,6 +164,54 @@ func (b *Bot) handleMediaGroup(message telego.Message) {
 	}()
 }
 
+// handleCommand processes a single command message
+func (b *Bot) handleCommand(ctx *th.Context, message telego.Message) error {
+	switch message.Text {
+	case "/start":
+		return b.handler.HandleStart(ctx, message)
+	case "/help":
+		return b.handler.HandleHelp(ctx, message)
+	case "/status":
+		return b.handler.HandleStatus(ctx, message)
+	case "/version":
+		return b.handler.HandleVersion(ctx, message)
+	case "/caption":
+		return b.handler.HandleCaption(ctx, message)
+	case "/showcaption":
+		return b.handler.HandleShowCaption(ctx, message)
+	case "/clearcaption":
+		return b.handler.HandleClearCaption(ctx, message)
+	default:
+		return nil
+	}
+}
+
+// handleMessage processes a single message
+func (b *Bot) handleMessage(ctx *th.Context, message telego.Message) error {
+	if b.debug {
+		log.Printf("Received message: %+v", message)
+	}
+
+	if message.MediaGroupID != "" {
+		b.handleMediaGroup(message)
+		return nil
+	}
+
+	if strings.HasPrefix(message.Text, "/") {
+		return b.handleCommand(ctx, message)
+	}
+
+	if message.Photo != nil {
+		return b.handler.HandlePhoto(ctx, message)
+	}
+
+	if message.Text != "" {
+		return b.handler.HandleText(ctx, message)
+	}
+
+	return nil
+}
+
 // Start starts the bot
 func (b *Bot) Start(ctx context.Context) {
 	if b.debug {
@@ -187,40 +235,7 @@ func (b *Bot) Start(ctx context.Context) {
 		_ = bh.Stop()
 	}()
 
-	bh.HandleMessage(func(ctx *th.Context, message telego.Message) error {
-		if b.debug {
-			log.Printf("Received message: %+v", message)
-		}
-
-		if message.MediaGroupID != "" {
-			b.handleMediaGroup(message)
-			return nil
-		}
-
-		switch message.Text {
-		case "/start":
-			return b.handler.HandleStart(ctx, message)
-		case "/help":
-			return b.handler.HandleHelp(ctx, message)
-		case "/status":
-			return b.handler.HandleStatus(ctx, message)
-		case "/version":
-			return b.handler.HandleVersion(ctx, message)
-		case "/caption":
-			return b.handler.HandleCaption(ctx, message)
-		case "/showcaption":
-			return b.handler.HandleShowCaption(ctx, message)
-		case "/clearcaption":
-			return b.handler.HandleClearCaption(ctx, message)
-		default:
-			if message.Photo != nil {
-				return b.handler.HandlePhoto(ctx, message)
-			} else if message.Text != "" {
-				return b.handler.HandleText(ctx, message)
-			}
-			return nil
-		}
-	})
+	bh.HandleMessage(b.handleMessage)
 
 	log.Println("Bot started")
 	if err := bh.Start(); err != nil {
