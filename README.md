@@ -1,33 +1,83 @@
-# Telegram Post Bot
+# VRChat Memes Bot
 
-A bot for creating posts in a Telegram channel.
+Telegram bot for posting VRChat memes to a channel.
+
+## Features
+
+- Posts memes to a specified Telegram channel
+- Debug mode for development
+- Error tracking with Sentry
+- Environment-based configuration
+
+## Requirements
+
+- Go 1.24 or higher
+- Telegram Bot Token
+- Sentry DSN (for error tracking)
 
 ## Installation
 
-1. Clone the repository
-2. Install dependencies:
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/vrcmemes-bot.git
+cd vrcmemes-bot
+```
 
+2. Install dependencies:
 ```bash
 go mod download
 ```
 
-## Configuration
+3. Copy the example environment file and configure it:
+```bash
+cp .env.example .env
+```
 
-1. Create a bot through [@BotFather](https://t.me/botfather) in Telegram
-2. Get the bot token
-3. Copy the `.env.example` file to `.env`
-4. Fill in the `.env` file:
-   - `TELEGRAM_BOT_TOKEN` - your bot token
-   - `CHANNEL_ID` - ID of the channel where posts will be published
+4. Edit `.env` file with your configuration:
+```env
+APP_ENV=development    # development, staging, or production
+DEBUG=true            # Enable debug mode
+VERSION=dev          # Application version
 
-## Running
+TELEGRAM_BOT_TOKEN=your-bot-token
+CHANNEL_ID=your-channel-id
+SENTRY_DSN=your-sentry-dsn-here
+```
+
+## Environment Variables
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `APP_ENV` | Application environment (development/staging/production) | No | development |
+| `DEBUG` | Enable debug mode | No | false |
+| `VERSION` | Application version | Yes | - |
+| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | Yes | - |
+| `CHANNEL_ID` | Telegram channel ID where memes will be posted | Yes | - |
+| `SENTRY_DSN` | Sentry DSN for error tracking | Yes | - |
+
+## Development
+
+To run the bot in development mode:
 
 ```bash
 go run main.go
 ```
 
-## Usage
+For hot-reload during development, you can use [Air](https://github.com/cosmtrek/air):
 
-1. Send the `/start` command to the bot
-2. Send the text you want to publish in the channel
-3. The bot will create a post in the specified channel
+```bash
+air
+```
+
+## Error Tracking
+
+The bot uses Sentry for error tracking. Make sure to:
+
+1. Create a Sentry account at https://sentry.io
+2. Create a new project
+3. Get your DSN from the project settings
+4. Add the DSN to your `.env` file
+
+## License
+
+MIT

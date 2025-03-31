@@ -13,6 +13,9 @@ type Config struct {
 	BotToken  string
 	ChannelID int64
 	Debug     bool
+	Version   string
+	SentryDSN string
+	AppEnv    string
 }
 
 // LoadConfig loads configuration from environment variables
@@ -43,9 +46,30 @@ func LoadConfig() (*Config, error) {
 	// Getting debug mode from environment variables
 	debug := os.Getenv("DEBUG") == "true"
 
+	// Getting version from environment variables
+	version := os.Getenv("VERSION")
+	if version == "" {
+		return nil, fmt.Errorf("VERSION is not set")
+	}
+
+	// Getting sentry DSN from environment variables
+	sentryDSN := os.Getenv("SENTRY_DSN")
+	if sentryDSN == "" {
+		return nil, fmt.Errorf("SENTRY_DSN is not set")
+	}
+
+	// Getting app environment from environment variables
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv == "" {
+		appEnv = "development" // Default to development if not set
+	}
+
 	return &Config{
 		BotToken:  token,
 		ChannelID: channelID,
 		Debug:     debug,
+		Version:   version,
+		SentryDSN: sentryDSN,
+		AppEnv:    appEnv,
 	}, nil
 }
