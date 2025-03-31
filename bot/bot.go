@@ -2,8 +2,10 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,14 +66,40 @@ func (b *Bot) createInputMedia(msgs []telego.Message, caption string) []telego.I
 	return inputMedia
 }
 
-// sendMediaGroup sends media group to channel
-func (b *Bot) sendMediaGroup(inputMedia []telego.InputMedia) error {
-	newCtx := context.Background()
-	_, err := b.bot.SendMediaGroup(newCtx, &telego.SendMediaGroupParams{
-		ChatID: tu.ID(b.handler.GetChannelID()),
-		Media:  inputMedia,
-	})
-	return err
+// sendMediaGroupWithRetry sends media group to channel with retry on rate limit
+func (b *Bot) sendMediaGroupWithRetry(inputMedia []telego.InputMedia, maxRetries int) error {
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		newCtx := context.Background()
+		_, err := b.bot.SendMediaGroup(newCtx, &telego.SendMediaGroupParams{
+			ChatID: tu.ID(b.handler.GetChannelID()),
+			Media:  inputMedia,
+		})
+
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		errStr := err.Error()
+
+		// Check if error is "Too Many Requests"
+		if strings.Contains(errStr, "Too Many Requests") {
+			// Extract retry after value
+			var retryAfter int
+			_, err := fmt.Sscanf(errStr, "telego: sendMediaGroup: api: 429 \"Too Many Requests: retry after %d\"", &retryAfter)
+			if err == nil {
+				log.Printf("Rate limit hit, waiting %d seconds before retry %d/%d", retryAfter, i+1, maxRetries)
+				time.Sleep(time.Duration(retryAfter) * time.Second)
+				continue
+			}
+		}
+
+		// If it's not a rate limit error, return immediately
+		return err
+	}
+
+	return fmt.Errorf("max retries exceeded: %v", lastErr)
 }
 
 // processMediaGroup processes a complete media group
@@ -87,8 +115,8 @@ func (b *Bot) processMediaGroup(message telego.Message, msgs []telego.Message) {
 	log.Printf("Created input media: count=%d", len(inputMedia))
 
 	if len(inputMedia) > 0 {
-		if err := b.sendMediaGroup(inputMedia); err != nil {
-			log.Printf("Error sending media group: %v", err)
+		if err := b.sendMediaGroupWithRetry(inputMedia, 3); err != nil {
+			log.Printf("Error sending media group after retries: %v", err)
 		} else {
 			log.Printf("Successfully sent media group")
 		}
