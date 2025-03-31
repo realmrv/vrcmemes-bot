@@ -57,18 +57,25 @@ alwaysApply: true
 - **Project Settings**: Adapt to custom project configurations if rules are modified or disabled.
 - **Feedback Learning**: Refine suggestions based on codebase updates and developer feedback.
 
----
-
-### Implementation and Behavior
+#### 9. Implementation and Behavior
 - **Core Principle**: Prioritize simplicity and clarity, reflecting Golang’s philosophy.
 - **Error Handling**: Never omit error checks in generated code.
 - **Tool Integration**: Collaborate with `gofmt` and `golint`, recommending their use after modifications.
 - **Version Awareness**: Stay updated with the latest Golang releases and adjust templates accordingly.
 
----
-
-### Language
+#### 10. Language
 
 - Always use English in generated files
 - Always use English in commit messages
+- Always use English in README.md
 
+#### 11. Versions
+
+- Go `1.24`
+- github.com/mymmrac/telego `v1.0.2`
+
+#### 12. Adds
+
+- Always use relative paths to files and folders.
+- Use the latest available versions of the program dependencies.
+- Do not change the `go.sum` file.
