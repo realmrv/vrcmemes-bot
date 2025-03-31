@@ -21,16 +21,31 @@ type Bot struct {
 	bot         *telego.Bot
 	handler     *handlers.MessageHandler
 	mediaGroups sync.Map
+	debug       bool
 }
 
 // New creates a new bot instance
-func New(token string, channelID int64) (*Bot, error) {
+func New(token string, channelID int64, debug bool) (*Bot, error) {
 	handler := handlers.NewMessageHandler(channelID)
-	bot, err := telego.NewBot(token, telego.WithDefaultDebugLogger())
+
+	var bot *telego.Bot
+	var err error
+
+	if debug {
+		bot, err = telego.NewBot(token, telego.WithDefaultDebugLogger())
+	} else {
+		bot, err = telego.NewBot(token, telego.WithDefaultLogger(false, false))
+	}
+
 	if err != nil {
 		return nil, err
 	}
-	return &Bot{bot: bot, handler: handler}, nil
+
+	return &Bot{
+		bot:     bot,
+		handler: handler,
+		debug:   debug,
+	}, nil
 }
 
 // storeMessageInGroup stores a message in the media group
@@ -151,6 +166,10 @@ func (b *Bot) handleMediaGroup(message telego.Message) {
 
 // Start starts the bot
 func (b *Bot) Start(ctx context.Context) {
+	if b.debug {
+		log.Println("Starting bot in debug mode")
+	}
+
 	updates, err := b.bot.UpdatesViaLongPolling(ctx, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -161,9 +180,18 @@ func (b *Bot) Start(ctx context.Context) {
 		log.Fatal(err)
 	}
 
-	defer func() { _ = bh.Stop() }()
+	defer func() {
+		if b.debug {
+			log.Println("Stopping updates")
+		}
+		_ = bh.Stop()
+	}()
 
 	bh.HandleMessage(func(ctx *th.Context, message telego.Message) error {
+		if b.debug {
+			log.Printf("Received message: %+v", message)
+		}
+
 		if message.MediaGroupID != "" {
 			b.handleMediaGroup(message)
 			return nil

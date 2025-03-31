@@ -19,7 +19,7 @@ func main() {
 	ctx := context.Background()
 
 	// Creating and starting bot
-	b, err := bot.New(cfg.BotToken, cfg.ChannelID)
+	b, err := bot.New(cfg.BotToken, cfg.ChannelID, cfg.Debug)
 	if err != nil {
 		log.Fatal(err)
 	}

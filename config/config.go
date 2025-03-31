@@ -12,6 +12,7 @@ import (
 type Config struct {
 	BotToken  string
 	ChannelID int64
+	Debug     bool
 }
 
 // LoadConfig loads configuration from environment variables
@@ -39,8 +40,12 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid CHANNEL_ID format: %w", err)
 	}
 
+	// Getting debug mode from environment variables
+	debug := os.Getenv("DEBUG") == "true"
+
 	return &Config{
 		BotToken:  token,
 		ChannelID: channelID,
+		Debug:     debug,
 	}, nil
 }
