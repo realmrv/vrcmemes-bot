@@ -2,3 +2,4 @@
 .env.backup
 .vscode/settings.json
 .lh
+tmp
