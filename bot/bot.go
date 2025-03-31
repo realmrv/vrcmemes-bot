@@ -22,6 +22,7 @@ type Bot struct {
 	handler     *handlers.MessageHandler
 	mediaGroups sync.Map
 	debug       bool
+	stopChan    chan struct{}
 }
 
 // New creates a new bot instance
@@ -42,9 +43,10 @@ func New(token string, channelID int64, debug bool) (*Bot, error) {
 	}
 
 	return &Bot{
-		bot:     bot,
-		handler: handler,
-		debug:   debug,
+		bot:      bot,
+		handler:  handler,
+		debug:    debug,
+		stopChan: make(chan struct{}),
 	}, nil
 }
 
@@ -82,16 +84,20 @@ func (b *Bot) createInputMedia(msgs []telego.Message, caption string) []telego.I
 }
 
 // sendMediaGroupWithRetry sends media group to channel with retry on rate limit
-func (b *Bot) sendMediaGroupWithRetry(inputMedia []telego.InputMedia, maxRetries int) error {
+func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.InputMedia, maxRetries int) error {
 	var lastErr error
-	for i := 0; i < maxRetries; i++ {
-		newCtx := context.Background()
-		_, err := b.bot.SendMediaGroup(newCtx, &telego.SendMediaGroupParams{
+	var retryCount int
+
+	for retryCount < maxRetries {
+		_, err := b.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
 			ChatID: tu.ID(b.handler.GetChannelID()),
 			Media:  inputMedia,
 		})
 
 		if err == nil {
+			if b.debug {
+				log.Printf("Successfully sent media group after %d attempts", retryCount+1)
+			}
 			return nil
 		}
 
@@ -104,17 +110,22 @@ func (b *Bot) sendMediaGroupWithRetry(inputMedia []telego.InputMedia, maxRetries
 			var retryAfter int
 			_, err := fmt.Sscanf(errStr, "telego: sendMediaGroup: api: 429 \"Too Many Requests: retry after %d\"", &retryAfter)
 			if err == nil {
-				log.Printf("Rate limit hit, waiting %d seconds before retry %d/%d", retryAfter, i+1, maxRetries)
-				time.Sleep(time.Duration(retryAfter) * time.Second)
-				continue
+				log.Printf("Rate limit hit (attempt %d/%d), waiting %d seconds", retryCount+1, maxRetries, retryAfter)
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("context cancelled while waiting for rate limit: %v", lastErr)
+				case <-time.After(time.Duration(retryAfter) * time.Second):
+					retryCount++
+					continue
+				}
 			}
 		}
 
 		// If it's not a rate limit error, return immediately
-		return err
+		return fmt.Errorf("failed to send media group: %v", err)
 	}
 
-	return fmt.Errorf("max retries exceeded: %v", lastErr)
+	return fmt.Errorf("max retries (%d) exceeded: %v", maxRetries, lastErr)
 }
 
 // processMediaGroup processes a complete media group
@@ -130,7 +141,10 @@ func (b *Bot) processMediaGroup(message telego.Message, msgs []telego.Message) {
 	log.Printf("Created input media: count=%d", len(inputMedia))
 
 	if len(inputMedia) > 0 {
-		if err := b.sendMediaGroupWithRetry(inputMedia, 3); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := b.sendMediaGroupWithRetry(ctx, inputMedia, 3); err != nil {
 			log.Printf("Error sending media group after retries: %v", err)
 		} else {
 			log.Printf("Successfully sent media group")
@@ -212,11 +226,42 @@ func (b *Bot) handleMessage(ctx *th.Context, message telego.Message) error {
 	return nil
 }
 
+// cleanupOldMediaGroups removes media groups older than 5 minutes
+func (b *Bot) cleanupOldMediaGroups() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.stopChan:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			b.mediaGroups.Range(func(key, value interface{}) bool {
+				msgs := value.([]telego.Message)
+				if len(msgs) > 0 {
+					// Check if the first message is older than 5 minutes
+					if now.Sub(time.Unix(int64(msgs[0].Date), 0)) > 5*time.Minute {
+						b.mediaGroups.Delete(key)
+						if b.debug {
+							log.Printf("Cleaned up old media group: ID=%s", key.(string))
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+}
+
 // Start starts the bot
 func (b *Bot) Start(ctx context.Context) {
 	if b.debug {
 		log.Println("Starting bot in debug mode")
 	}
+
+	// Start cleanup goroutine
+	go b.cleanupOldMediaGroups()
 
 	updates, err := b.bot.UpdatesViaLongPolling(ctx, nil)
 	if err != nil {
@@ -232,6 +277,7 @@ func (b *Bot) Start(ctx context.Context) {
 		if b.debug {
 			log.Println("Stopping updates")
 		}
+		close(b.stopChan)
 		_ = bh.Stop()
 	}()
 
