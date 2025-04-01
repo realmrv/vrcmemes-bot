@@ -10,20 +10,26 @@ import (
 
 // Config holds all configuration parameters
 type Config struct {
-	BotToken  string
-	ChannelID int64
-	Debug     bool
-	Version   string
-	SentryDSN string
-	AppEnv    string
+	BotToken    string
+	ChannelID   int64
+	Debug       bool
+	Version     string
+	SentryDSN   string
+	AppEnv      string
+	MongoDBURI  string
+	MongoDBName string
 }
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() (*Config, error) {
 	// Loading environment variables
-	if err := godotenv.Load(); err != nil {
-		return nil, fmt.Errorf("error loading .env file: %w", err)
+	err := godotenv.Load()
+	if err != nil {
+		return nil, err
 	}
+
+	// Getting debug mode from environment variables
+	debug := os.Getenv("DEBUG") == "true"
 
 	// Getting bot token from environment variables
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
@@ -43,13 +49,10 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid CHANNEL_ID format: %w", err)
 	}
 
-	// Getting debug mode from environment variables
-	debug := os.Getenv("DEBUG") == "true"
-
 	// Getting version from environment variables
 	version := os.Getenv("VERSION")
 	if version == "" {
-		return nil, fmt.Errorf("VERSION is not set")
+		version = "dev"
 	}
 
 	// Getting sentry DSN from environment variables
@@ -64,12 +67,26 @@ func LoadConfig() (*Config, error) {
 		appEnv = "development" // Default to development if not set
 	}
 
+	// Getting MongoDB URI from environment variables
+	mongoDBURI := os.Getenv("MONGODB_URI")
+	if mongoDBURI == "" {
+		return nil, fmt.Errorf("MONGODB_URI is not set")
+	}
+
+	// Getting MongoDB database name from environment variables
+	mongoDBName := os.Getenv("MONGODB_DATABASE")
+	if mongoDBName == "" {
+		return nil, fmt.Errorf("MONGODB_DATABASE is not set")
+	}
+
 	return &Config{
-		BotToken:  token,
-		ChannelID: channelID,
-		Debug:     debug,
-		Version:   version,
-		SentryDSN: sentryDSN,
-		AppEnv:    appEnv,
+		BotToken:    token,
+		ChannelID:   channelID,
+		Debug:       debug,
+		Version:     version,
+		SentryDSN:   sentryDSN,
+		AppEnv:      appEnv,
+		MongoDBURI:  mongoDBURI,
+		MongoDBName: mongoDBName,
 	}, nil
 }

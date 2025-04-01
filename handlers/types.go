@@ -5,6 +5,7 @@ import (
 
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // Command represents a bot command
@@ -25,12 +26,14 @@ type MessageHandler struct {
 	mediaGroupCaptions sync.Map
 	// Available commands
 	commands []Command
+	db       *mongo.Database
 }
 
 // NewMessageHandler creates a new message handler
-func NewMessageHandler(channelID int64) *MessageHandler {
+func NewMessageHandler(channelID int64, db *mongo.Database) *MessageHandler {
 	return &MessageHandler{
 		channelID: channelID,
+		db:        db,
 		commands: []Command{
 			{Command: "start", Description: cmdStartDesc, Handler: (*MessageHandler).HandleStart},
 			{Command: "help", Description: cmdHelpDesc, Handler: (*MessageHandler).HandleHelp},

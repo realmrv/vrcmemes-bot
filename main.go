@@ -7,6 +7,7 @@ import (
 
 	"vrcmemes-bot/bot"
 	"vrcmemes-bot/config"
+	"vrcmemes-bot/database"
 
 	"github.com/getsentry/sentry-go"
 )
@@ -32,11 +33,18 @@ func main() {
 	}
 	defer sentry.Flush(2 * time.Second)
 
+	// Connect to MongoDB
+	err = database.ConnectDB(cfg)
+	if err != nil {
+		sentry.CaptureException(err)
+		log.Fatal(err)
+	}
+
 	// Creating context
 	ctx := context.Background()
 
 	// Creating and starting bot
-	b, err := bot.New(cfg.BotToken, cfg.ChannelID, cfg.Debug)
+	b, err := bot.New(cfg.BotToken, cfg.ChannelID, cfg.Debug, database.DB)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatal(err)

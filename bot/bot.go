@@ -14,6 +14,7 @@ import (
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
 	tu "github.com/mymmrac/telego/telegoutil"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // Bot represents the Telegram bot
@@ -26,8 +27,8 @@ type Bot struct {
 }
 
 // New creates a new bot instance
-func New(token string, channelID int64, debug bool) (*Bot, error) {
-	handler := handlers.NewMessageHandler(channelID)
+func New(token string, channelID int64, debug bool, db *mongo.Database) (*Bot, error) {
+	handler := handlers.NewMessageHandler(channelID, db)
 
 	var bot *telego.Bot
 	var err error

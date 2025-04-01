@@ -1,6 +1,10 @@
 package handlers
 
 import (
+	"context"
+	"log"
+	"time"
+
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
 	tu "github.com/mymmrac/telego/telegoutil"
@@ -16,6 +20,22 @@ func (h *MessageHandler) HandleText(ctx *th.Context, message telego.Message) err
 		_, hadPreviousCaption := h.GetActiveCaption(message.Chat.ID)
 		h.setActiveCaption(message.Chat.ID, message.Text)
 		h.waitingForCaption.Delete(message.Chat.ID)
+
+		// Логируем установку подписи
+		_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+			"user_id": message.From.ID,
+			"action":  "set_caption",
+			"details": map[string]interface{}{
+				"chat_id":   message.Chat.ID,
+				"caption":   message.Text,
+				"overwrite": hadPreviousCaption,
+			},
+			"time": time.Now(),
+		})
+		if err != nil {
+			// Логируем ошибку, но не прерываем выполнение
+			log.Printf("Failed to log caption action: %v", err)
+		}
 
 		if hadPreviousCaption {
 			return h.sendSuccess(ctx, message.Chat.ID, msgCaptionOverwrite)
@@ -39,6 +59,21 @@ func (h *MessageHandler) HandleText(ctx *th.Context, message telego.Message) err
 	if err != nil {
 		return h.sendError(ctx, message.Chat.ID, err)
 	}
+
+	// Логируем отправку текстового сообщения
+	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+		"user_id": message.From.ID,
+		"action":  "send_text",
+		"details": map[string]interface{}{
+			"chat_id": message.Chat.ID,
+			"text":    message.Text,
+		},
+		"time": time.Now(),
+	})
+	if err != nil {
+		log.Printf("Failed to log text message action: %v", err)
+	}
+
 	return h.sendSuccess(ctx, message.Chat.ID, msgPostSuccess)
 }
 
@@ -65,6 +100,21 @@ func (h *MessageHandler) HandlePhoto(ctx *th.Context, message telego.Message) er
 	})
 	if err != nil {
 		return h.sendError(ctx, message.Chat.ID, err)
+	}
+
+	// Логируем отправку фото
+	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+		"user_id": message.From.ID,
+		"action":  "send_photo",
+		"details": map[string]interface{}{
+			"chat_id":    message.Chat.ID,
+			"message_id": message.MessageID,
+			"caption":    caption,
+		},
+		"time": time.Now(),
+	})
+	if err != nil {
+		log.Printf("Failed to log photo action: %v", err)
 	}
 
 	if caption != "" {
@@ -111,6 +161,22 @@ func (h *MessageHandler) HandleMediaGroup(ctx *th.Context, message telego.Messag
 	})
 	if err != nil {
 		return h.sendError(ctx, message.Chat.ID, err)
+	}
+
+	// Логируем отправку медиагруппы
+	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+		"user_id": message.From.ID,
+		"action":  "send_media_group",
+		"details": map[string]interface{}{
+			"chat_id":        message.Chat.ID,
+			"message_id":     message.MessageID,
+			"media_group_id": message.MediaGroupID,
+			"caption":        caption,
+		},
+		"time": time.Now(),
+	})
+	if err != nil {
+		log.Printf("Failed to log media group action: %v", err)
 	}
 
 	if caption != "" {

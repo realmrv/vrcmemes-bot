@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"os"
+	"time"
 
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
@@ -13,6 +16,20 @@ func (h *MessageHandler) HandleStart(ctx *th.Context, message telego.Message) er
 	if err := h.setupCommands(ctx); err != nil {
 		return h.sendError(ctx, message.Chat.ID, err)
 	}
+
+	// Логируем команду /start
+	_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+		"user_id": message.From.ID,
+		"action":  "command_start",
+		"details": map[string]interface{}{
+			"chat_id": message.Chat.ID,
+		},
+		"time": time.Now(),
+	})
+	if err != nil {
+		log.Printf("Failed to log start command: %v", err)
+	}
+
 	return h.sendSuccess(ctx, message.Chat.ID, msgStart)
 }
 
@@ -23,6 +40,20 @@ func (h *MessageHandler) HandleHelp(ctx *th.Context, message telego.Message) err
 		helpText += fmt.Sprintf("/%s - %s\n", cmd.Command, cmd.Description)
 	}
 	helpText += msgHelpFooter
+
+	// Логируем команду /help
+	_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+		"user_id": message.From.ID,
+		"action":  "command_help",
+		"details": map[string]interface{}{
+			"chat_id": message.Chat.ID,
+		},
+		"time": time.Now(),
+	})
+	if err != nil {
+		log.Printf("Failed to log help command: %v", err)
+	}
+
 	return h.sendSuccess(ctx, message.Chat.ID, helpText)
 }
 
@@ -30,6 +61,21 @@ func (h *MessageHandler) HandleHelp(ctx *th.Context, message telego.Message) err
 func (h *MessageHandler) HandleStatus(ctx *th.Context, message telego.Message) error {
 	caption, _ := h.GetActiveCaption(message.Chat.ID)
 	statusText := fmt.Sprintf("Bot is running\nChannel ID: %d\nCaption: %s", h.channelID, caption)
+
+	// Логируем команду /status
+	_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+		"user_id": message.From.ID,
+		"action":  "command_status",
+		"details": map[string]interface{}{
+			"chat_id": message.Chat.ID,
+			"caption": caption,
+		},
+		"time": time.Now(),
+	})
+	if err != nil {
+		log.Printf("Failed to log status command: %v", err)
+	}
+
 	return h.sendSuccess(ctx, message.Chat.ID, statusText)
 }
 
@@ -39,6 +85,21 @@ func (h *MessageHandler) HandleVersion(ctx *th.Context, message telego.Message) 
 	if version == "" {
 		version = "dev"
 	}
+
+	// Логируем команду /version
+	_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+		"user_id": message.From.ID,
+		"action":  "command_version",
+		"details": map[string]interface{}{
+			"chat_id": message.Chat.ID,
+			"version": version,
+		},
+		"time": time.Now(),
+	})
+	if err != nil {
+		log.Printf("Failed to log version command: %v", err)
+	}
+
 	return h.sendSuccess(ctx, message.Chat.ID, "Bot version: "+version)
 }
 
