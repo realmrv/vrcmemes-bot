@@ -5,6 +5,8 @@ import (
 	"log"
 	"time"
 
+	"vrcmemes-bot/database"
+
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
 	tu "github.com/mymmrac/telego/telegoutil"
@@ -21,8 +23,23 @@ func (h *MessageHandler) HandleText(ctx *th.Context, message telego.Message) err
 		h.setActiveCaption(message.Chat.ID, message.Text)
 		h.waitingForCaption.Delete(message.Chat.ID)
 
-		// Логируем установку подписи
-		_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+		// Update user information
+		isAdmin, _ := h.isUserAdmin(ctx, message.From.ID)
+		err := database.UpdateUser(
+			h.db,
+			message.From.ID,
+			message.From.Username,
+			message.From.FirstName,
+			message.From.LastName,
+			isAdmin,
+			"set_caption",
+		)
+		if err != nil {
+			log.Printf("Failed to update user info: %v", err)
+		}
+
+		// Log caption setting action
+		_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
 			"user_id": message.From.ID,
 			"action":  "set_caption",
 			"details": map[string]interface{}{
@@ -33,7 +50,6 @@ func (h *MessageHandler) HandleText(ctx *th.Context, message telego.Message) err
 			"time": time.Now(),
 		})
 		if err != nil {
-			// Логируем ошибку, но не прерываем выполнение
 			log.Printf("Failed to log caption action: %v", err)
 		}
 
@@ -60,7 +76,21 @@ func (h *MessageHandler) HandleText(ctx *th.Context, message telego.Message) err
 		return h.sendError(ctx, message.Chat.ID, err)
 	}
 
-	// Логируем отправку текстового сообщения
+	// Update user information
+	err = database.UpdateUser(
+		h.db,
+		message.From.ID,
+		message.From.Username,
+		message.From.FirstName,
+		message.From.LastName,
+		isAdmin,
+		"send_text",
+	)
+	if err != nil {
+		log.Printf("Failed to update user info: %v", err)
+	}
+
+	// Log text message sending action
 	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
 		"user_id": message.From.ID,
 		"action":  "send_text",
@@ -102,7 +132,21 @@ func (h *MessageHandler) HandlePhoto(ctx *th.Context, message telego.Message) er
 		return h.sendError(ctx, message.Chat.ID, err)
 	}
 
-	// Логируем отправку фото
+	// Update user information
+	err = database.UpdateUser(
+		h.db,
+		message.From.ID,
+		message.From.Username,
+		message.From.FirstName,
+		message.From.LastName,
+		isAdmin,
+		"send_photo",
+	)
+	if err != nil {
+		log.Printf("Failed to update user info: %v", err)
+	}
+
+	// Log photo sending action
 	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
 		"user_id": message.From.ID,
 		"action":  "send_photo",
@@ -163,7 +207,21 @@ func (h *MessageHandler) HandleMediaGroup(ctx *th.Context, message telego.Messag
 		return h.sendError(ctx, message.Chat.ID, err)
 	}
 
-	// Логируем отправку медиагруппы
+	// Update user information
+	err = database.UpdateUser(
+		h.db,
+		message.From.ID,
+		message.From.Username,
+		message.From.FirstName,
+		message.From.LastName,
+		isAdmin,
+		"send_media_group",
+	)
+	if err != nil {
+		log.Printf("Failed to update user info: %v", err)
+	}
+
+	// Log media group sending action
 	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
 		"user_id": message.From.ID,
 		"action":  "send_media_group",

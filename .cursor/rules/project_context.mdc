@@ -66,6 +66,7 @@ alwaysApply: true
 #### 10. Language
 
 - Always use English in generated files
+- Always use English in comments
 - Always use English in commit messages
 - Always use English in README.md
 

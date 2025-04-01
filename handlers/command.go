@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"vrcmemes-bot/database"
+
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
 )
@@ -17,8 +19,23 @@ func (h *MessageHandler) HandleStart(ctx *th.Context, message telego.Message) er
 		return h.sendError(ctx, message.Chat.ID, err)
 	}
 
-	// Логируем команду /start
-	_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+	// Update user information
+	isAdmin, _ := h.isUserAdmin(ctx, message.From.ID)
+	err := database.UpdateUser(
+		h.db,
+		message.From.ID,
+		message.From.Username,
+		message.From.FirstName,
+		message.From.LastName,
+		isAdmin,
+		"command_start",
+	)
+	if err != nil {
+		log.Printf("Failed to update user info: %v", err)
+	}
+
+	// Log start command action
+	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
 		"user_id": message.From.ID,
 		"action":  "command_start",
 		"details": map[string]interface{}{
@@ -41,8 +58,23 @@ func (h *MessageHandler) HandleHelp(ctx *th.Context, message telego.Message) err
 	}
 	helpText += msgHelpFooter
 
-	// Логируем команду /help
-	_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+	// Update user information
+	isAdmin, _ := h.isUserAdmin(ctx, message.From.ID)
+	err := database.UpdateUser(
+		h.db,
+		message.From.ID,
+		message.From.Username,
+		message.From.FirstName,
+		message.From.LastName,
+		isAdmin,
+		"command_help",
+	)
+	if err != nil {
+		log.Printf("Failed to update user info: %v", err)
+	}
+
+	// Log help command action
+	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
 		"user_id": message.From.ID,
 		"action":  "command_help",
 		"details": map[string]interface{}{
@@ -62,8 +94,23 @@ func (h *MessageHandler) HandleStatus(ctx *th.Context, message telego.Message) e
 	caption, _ := h.GetActiveCaption(message.Chat.ID)
 	statusText := fmt.Sprintf("Bot is running\nChannel ID: %d\nCaption: %s", h.channelID, caption)
 
-	// Логируем команду /status
-	_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+	// Update user information
+	isAdmin, _ := h.isUserAdmin(ctx, message.From.ID)
+	err := database.UpdateUser(
+		h.db,
+		message.From.ID,
+		message.From.Username,
+		message.From.FirstName,
+		message.From.LastName,
+		isAdmin,
+		"command_status",
+	)
+	if err != nil {
+		log.Printf("Failed to update user info: %v", err)
+	}
+
+	// Log status command action
+	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
 		"user_id": message.From.ID,
 		"action":  "command_status",
 		"details": map[string]interface{}{
@@ -86,8 +133,23 @@ func (h *MessageHandler) HandleVersion(ctx *th.Context, message telego.Message) 
 		version = "dev"
 	}
 
-	// Логируем команду /version
-	_, err := h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
+	// Update user information
+	isAdmin, _ := h.isUserAdmin(ctx, message.From.ID)
+	err := database.UpdateUser(
+		h.db,
+		message.From.ID,
+		message.From.Username,
+		message.From.FirstName,
+		message.From.LastName,
+		isAdmin,
+		"command_version",
+	)
+	if err != nil {
+		log.Printf("Failed to update user info: %v", err)
+	}
+
+	// Log version command action
+	_, err = h.db.Collection("user_actions").InsertOne(context.Background(), map[string]interface{}{
 		"user_id": message.From.ID,
 		"action":  "command_version",
 		"details": map[string]interface{}{
