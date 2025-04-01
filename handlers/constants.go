@@ -23,3 +23,14 @@ const (
 	msgMediaGroupSuccess        = "Медиа группа опубликована в канале"
 	msgMediaGroupWithCaption    = "Медиа группа с подписью опубликована в канале"
 )
+
+// Command descriptions
+const (
+	cmdStartDesc        = "Запустить бота"
+	cmdHelpDesc         = "Показать справку"
+	cmdStatusDesc       = "Показать статус бота"
+	cmdVersionDesc      = "Показать версию бота"
+	cmdCaptionDesc      = "Установить подпись для фотографий"
+	cmdShowCaptionDesc  = "Показать текущую подпись"
+	cmdClearCaptionDesc = "Очистить текущую подпись"
+)
