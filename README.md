@@ -8,41 +8,49 @@ Telegram bot for posting VRChat memes to a channel.
 - Debug mode for development
 - Error tracking with Sentry
 - Environment-based configuration
+- MongoDB integration for user tracking
 
 ## Requirements
 
 - Go 1.24 or higher
 - Telegram Bot Token
 - Sentry DSN (for error tracking)
+- MongoDB instance
 
 ## Installation
 
 1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/vrcmemes-bot.git
-cd vrcmemes-bot
-```
+
+    ```bash
+    git clone https://github.com/yourusername/vrcmemes-bot.git
+    cd vrcmemes-bot
+    ```
 
 2. Install dependencies:
-```bash
-go mod download
-```
+
+    ```bash
+    go mod download
+    ```
 
 3. Copy the example environment file and configure it:
-```bash
-cp .env.example .env
-```
+
+    ```bash
+    cp .env.example .env
+    ```
 
 4. Edit `.env` file with your configuration:
-```env
-APP_ENV=development    # development, staging, or production
-DEBUG=true            # Enable debug mode
-VERSION=dev          # Application version
 
-TELEGRAM_BOT_TOKEN=your-bot-token
-CHANNEL_ID=your-channel-id
-SENTRY_DSN=your-sentry-dsn-here
-```
+    ```env
+    APP_ENV=development    # development, staging, or production
+    DEBUG=true            # Enable debug mode
+    VERSION=dev          # Application version
+
+    TELEGRAM_BOT_TOKEN=your-bot-token
+    CHANNEL_ID=your-channel-id
+    SENTRY_DSN=your-sentry-dsn-here
+    MONGODB_URI=your-mongodb-uri
+    MONGODB_DATABASE=your-database-name
+    ```
 
 ## Environment Variables
 
@@ -54,6 +62,8 @@ SENTRY_DSN=your-sentry-dsn-here
 | `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | Yes | - |
 | `CHANNEL_ID` | Telegram channel ID where memes will be posted | Yes | - |
 | `SENTRY_DSN` | Sentry DSN for error tracking | Yes | - |
+| `MONGODB_URI` | MongoDB connection URI | Yes | - |
+| `MONGODB_DATABASE` | MongoDB database name | Yes | - |
 
 ## Development
 
@@ -77,6 +87,20 @@ The bot uses Sentry for error tracking. Make sure to:
 2. Create a new project
 3. Get your DSN from the project settings
 4. Add the DSN to your `.env` file
+
+## Database
+
+The bot uses MongoDB to store:
+
+- User information and activity
+- Action logs
+- Caption history
+
+Make sure to:
+
+1. Have a MongoDB instance running
+2. Configure the connection URI in your `.env` file
+3. Create a database for the bot
 
 ## License
 
