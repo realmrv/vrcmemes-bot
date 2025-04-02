@@ -85,12 +85,14 @@ func (b *Bot) createInputMedia(msgs []telego.Message, caption string) []telego.I
 }
 
 // sendMediaGroupWithRetry sends media group to channel with retry on rate limit
-func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.InputMedia, maxRetries int) error {
+// It now returns the slice of sent messages or an error.
+func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.InputMedia, maxRetries int) ([]telego.Message, error) {
 	var lastErr error
 	var retryCount int
 
 	for retryCount < maxRetries {
-		_, err := b.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
+		// SendMediaGroup returns a slice of the sent messages
+		sentMessages, err := b.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
 			ChatID: tu.ID(b.handler.GetChannelID()),
 			Media:  inputMedia,
 		})
@@ -99,7 +101,7 @@ func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.I
 			if b.debug {
 				log.Printf("Successfully sent media group after %d attempts", retryCount+1)
 			}
-			return nil
+			return sentMessages, nil // Return sent messages on success
 		}
 
 		lastErr = err
@@ -114,7 +116,8 @@ func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.I
 				log.Printf("Rate limit hit (attempt %d/%d), waiting %d seconds", retryCount+1, maxRetries, retryAfter)
 				select {
 				case <-ctx.Done():
-					return fmt.Errorf("context cancelled while waiting for rate limit: %v", lastErr)
+					// Return nil messages and the error
+					return nil, fmt.Errorf("context cancelled while waiting for rate limit: %v", lastErr)
 				case <-time.After(time.Duration(retryAfter) * time.Second):
 					retryCount++
 					continue
@@ -123,10 +126,12 @@ func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.I
 		}
 
 		// If it's not a rate limit error, return immediately
-		return fmt.Errorf("failed to send media group: %v", err)
+		// Return nil messages and the error
+		return nil, fmt.Errorf("failed to send media group: %v", err)
 	}
 
-	return fmt.Errorf("max retries (%d) exceeded: %v", maxRetries, lastErr)
+	// Return nil messages and the final error after max retries
+	return nil, fmt.Errorf("max retries (%d) exceeded: %v", maxRetries, lastErr)
 }
 
 // processMediaGroup processes a complete media group
@@ -145,10 +150,40 @@ func (b *Bot) processMediaGroup(message telego.Message, msgs []telego.Message) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := b.sendMediaGroupWithRetry(ctx, inputMedia, 3); err != nil {
+		sentMessages, err := b.sendMediaGroupWithRetry(ctx, inputMedia, 3)
+		if err != nil {
 			log.Printf("Error sending media group after retries: %v", err)
 		} else {
-			log.Printf("Successfully sent media group")
+			// Successfully sent the media group
+			publishedTime := time.Now()
+			channelPostID := 0 // Default value if no messages were sent or ID is unavailable
+			if len(sentMessages) > 0 {
+				channelPostID = sentMessages[0].MessageID
+			}
+
+			// Create log entry
+			logEntry := handlers.PostLog{
+				SenderID:             message.From.ID,
+				SenderUsername:       message.From.Username,
+				Caption:              caption,
+				MessageType:          "media_group",
+				ReceivedAt:           time.Unix(int64(message.Date), 0),
+				PublishedAt:          publishedTime,
+				ChannelID:            b.handler.GetChannelID(),
+				ChannelPostID:        channelPostID,
+				OriginalMediaGroupID: message.MediaGroupID,
+			}
+
+			// Log to MongoDB via handler
+			if err := b.handler.LogPublishedPost(logEntry); err != nil {
+				// Error is already logged within LogPublishedPost, but you could add more handling here if needed
+				log.Printf("Failed attempt to log post to DB for media group %s", message.MediaGroupID)
+			}
+
+			// Optional: Keep a simple log message for console/debug output
+			if b.debug {
+				log.Printf("Successfully sent and logged media group: %s -> Channel Post ID: %d", message.MediaGroupID, channelPostID)
+			}
 		}
 	} else {
 		log.Printf("No valid media found in group")

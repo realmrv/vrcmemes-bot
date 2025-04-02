@@ -67,13 +67,34 @@ func (h *MessageHandler) HandleText(ctx *th.Context, message telego.Message) err
 		return h.sendSuccess(ctx, message.Chat.ID, msgNoAdminRights)
 	}
 
-	_, err = ctx.Bot().SendMessage(ctx, tu.Message(
+	// SendMessage returns the sent message, capture it
+	sentMsg, err := ctx.Bot().SendMessage(ctx, tu.Message(
 		tu.ID(h.channelID),
 		message.Text,
 	).WithParseMode(telego.ModeHTML),
 	)
 	if err != nil {
 		return h.sendError(ctx, message.Chat.ID, err)
+	}
+
+	publishedTime := time.Now()
+
+	// Create log entry for the text message
+	logEntry := PostLog{
+		SenderID:       message.From.ID,
+		SenderUsername: message.From.Username,
+		Caption:        message.Text, // For text messages, the text is the content
+		MessageType:    "text",
+		ReceivedAt:     time.Unix(int64(message.Date), 0),
+		PublishedAt:    publishedTime,
+		ChannelID:      h.channelID,
+		ChannelPostID:  sentMsg.MessageID, // Use the returned message ID
+	}
+
+	// Log to MongoDB
+	if err := h.LogPublishedPost(logEntry); err != nil {
+		// Error is logged within LogPublishedPost
+		log.Printf("Failed attempt to log text post to DB from user %d", message.From.ID)
 	}
 
 	// Update user information
@@ -122,7 +143,8 @@ func (h *MessageHandler) HandlePhoto(ctx *th.Context, message telego.Message) er
 	}
 
 	caption, _ := h.GetActiveCaption(message.Chat.ID)
-	_, err = ctx.Bot().CopyMessage(ctx, &telego.CopyMessageParams{
+	// CopyMessage returns the sent message ID, capture it
+	sentMsgID, err := ctx.Bot().CopyMessage(ctx, &telego.CopyMessageParams{
 		ChatID:     tu.ID(h.channelID),
 		FromChatID: tu.ID(message.Chat.ID),
 		MessageID:  message.MessageID,
@@ -130,6 +152,26 @@ func (h *MessageHandler) HandlePhoto(ctx *th.Context, message telego.Message) er
 	})
 	if err != nil {
 		return h.sendError(ctx, message.Chat.ID, err)
+	}
+
+	publishedTime := time.Now()
+
+	// Create log entry for the photo
+	logEntry := PostLog{
+		SenderID:       message.From.ID,
+		SenderUsername: message.From.Username,
+		Caption:        caption, // The actual caption used
+		MessageType:    "photo",
+		ReceivedAt:     time.Unix(int64(message.Date), 0),
+		PublishedAt:    publishedTime,
+		ChannelID:      h.channelID,
+		ChannelPostID:  sentMsgID.MessageID, // Use the returned message ID
+	}
+
+	// Log to MongoDB
+	if err := h.LogPublishedPost(logEntry); err != nil {
+		// Error is logged within LogPublishedPost
+		log.Printf("Failed attempt to log photo post to DB from user %d", message.From.ID)
 	}
 
 	// Update user information
@@ -241,4 +283,16 @@ func (h *MessageHandler) HandleMediaGroup(ctx *th.Context, message telego.Messag
 		return h.sendSuccess(ctx, message.Chat.ID, msgMediaGroupWithCaption)
 	}
 	return h.sendSuccess(ctx, message.Chat.ID, msgMediaGroupSuccess)
+}
+
+// LogPublishedPost saves the post log entry to the database.
+func (h *MessageHandler) LogPublishedPost(logEntry PostLog) error {
+	collection := h.db.Collection("post_logs")
+	_, err := collection.InsertOne(context.Background(), logEntry)
+	if err != nil {
+		log.Printf("Error logging published post to MongoDB: %v", err)
+		// Depending on requirements, you might want to handle this error differently,
+		// e.g., retry, log to a fallback, or ignore.
+	}
+	return err // Return the error status
 }

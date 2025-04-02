@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"sync"
+	"time"
 
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
@@ -44,4 +45,17 @@ func NewMessageHandler(channelID int64, db *mongo.Database) *MessageHandler {
 			{Command: "clearcaption", Description: cmdClearCaptionDesc, Handler: (*MessageHandler).HandleClearCaption},
 		},
 	}
+}
+
+// PostLog represents the structure for logging published posts in MongoDB
+type PostLog struct {
+	SenderID             int64     `bson:"sender_id"`
+	SenderUsername       string    `bson:"sender_username"`
+	Caption              string    `bson:"caption"`
+	MessageType          string    `bson:"message_type"`
+	ReceivedAt           time.Time `bson:"received_at"`
+	PublishedAt          time.Time `bson:"published_at"`
+	ChannelID            int64     `bson:"channel_id"`
+	ChannelPostID        int       `bson:"channel_post_id"`
+	OriginalMediaGroupID string    `bson:"original_media_group_id"`
 }
