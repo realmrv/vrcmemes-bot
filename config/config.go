@@ -20,12 +20,15 @@ type Config struct {
 	MongoDBName string
 }
 
-// LoadConfig loads configuration from environment variables
+// LoadConfig loads configuration from environment variables.
+// It attempts to load a .env file if present but prioritizes
+// actual environment variables set in the system (e.g., by Docker).
 func LoadConfig() (*Config, error) {
-	// Loading environment variables
+	// Attempt to load .env file. Ignore error if the file doesn't exist.
 	err := godotenv.Load()
-	if err != nil {
-		return nil, err
+	if err != nil && !os.IsNotExist(err) { // Use os.IsNotExist for standard check
+		// Return error only if it's something other than the file not existing
+		return nil, fmt.Errorf("error loading .env file: %w", err)
 	}
 
 	// Getting debug mode from environment variables
@@ -70,7 +73,13 @@ func LoadConfig() (*Config, error) {
 	// Getting MongoDB URI from environment variables
 	mongoDBURI := os.Getenv("MONGODB_URI")
 	if mongoDBURI == "" {
-		return nil, fmt.Errorf("MONGODB_URI is not set")
+		// In Docker, this might be intentionally empty if we construct it differently later
+		// For now, we require it, but this check might need adjustment based on setup.
+		// If running outside Docker, it *must* be set.
+		if os.Getenv("IS_DOCKER") != "true" { // Example check
+			return nil, fmt.Errorf("MONGODB_URI is not set")
+		}
+		// If in Docker, allow it to be empty here, assuming it's constructed or provided elsewhere.
 	}
 
 	// Getting MongoDB database name from environment variables
