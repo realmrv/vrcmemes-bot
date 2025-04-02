@@ -1,27 +1,32 @@
 package handlers
 
-// Message types
+// Constants for user messages (in Russian)
 const (
-	msgStart                    = "Привет! Я бот для публикации мемов в канал. Отправь мне фото или текст, и я опубликую его в канале."
-	msgCaptionPrompt            = "Пожалуйста, введите текст подписи для следующих фотографий. Это заменит любую существующую подпись."
-	msgCaptionSaved             = "Подпись сохранена! Все фотографии, которые вы отправите, будут использовать эту подпись. Используйте /caption снова, чтобы изменить её."
-	msgCaptionOverwrite         = "Предыдущая подпись была заменена на новую."
-	msgPostSuccess              = "Пост успешно опубликован в канале!"
-	msgPhotoSuccess             = "Фото успешно опубликовано в канале!"
-	msgPhotoWithCaption         = "Фото с подписью успешно опубликовано в канале!"
-	msgHelpFooter               = "\nЧтобы создать пост, просто отправьте любое текстовое сообщение.\nЧтобы добавить подпись к фото, используйте команду /caption, а затем отправьте фото."
-	msgNoCaptionSet             = "Нет активной подписи. Используйте /caption, чтобы установить её."
-	msgCurrentCaption           = "Текущая активная подпись:\n%s"
-	msgCaptionCleared           = "Активная подпись очищена."
-	msgErrorSendingMessage      = "Ошибка отправки сообщения: %s"
-	msgErrorCopyingMessage      = "Ошибка копирования сообщения: %s"
-	msgNoAdminRights            = "У вас нет прав для публикации сообщений в канале."
-	msgNoAdminRightsPhoto       = "У вас нет прав для публикации фотографий в канале."
-	msgNoAdminRightsMedia       = "У вас нет прав для публикации медиа групп в канале."
-	msgNoAdminRightsCaption     = "У вас нет прав для управления подписями в канале."
-	msgNoAdminRightsViewCaption = "У вас нет прав для просмотра подписей в канале."
-	msgMediaGroupSuccess        = "Медиа группа опубликована в канале"
-	msgMediaGroupWithCaption    = "Медиа группа с подписью опубликована в канале"
+	// Command messages
+	msgStart      = "Привет! Я бот для публикации мемов в канал. Отправь мне фото или текст, и я опубликую его в канале."
+	msgHelpFooter = "\\n\\nОтправь мне фото или текст для публикации. Используй /caption [текст] для добавления подписи к следующему сообщению."
+	msgStatus     = "Бот запущен\\nКанал ID: %d\\nТекущая подпись: %s"
+	msgVersion    = "Версия бота: %s"
+
+	// Caption command messages
+	msgCaptionPrompt       = "Пожалуйста, введите текст новой подписи."
+	msgCaptionSet          = "Подпись установлена. Она будет добавлена к следующему медиа."
+	msgCaptionCleared      = "Подпись очищена."
+	msgShowCaptionActive   = "Текущая подпись: %s"
+	msgShowCaptionInactive = "Нет активной подписи."
+
+	// Success messages
+	msgCaptionOverwrite      = "Предыдущая подпись была заменена на новую."
+	msgPostSent              = "Сообщение отправлено в канал."
+	msgMediaGroupSuccess     = "Медиа группа опубликована в канале"
+	msgMediaGroupWithCaption = "Медиа группа с подписью опубликована в канале"
+
+	// Error messages
+	msgErrorGeneric       = "Произошла ошибка: %v"
+	msgErrorUserNotAdmin  = "У вас нет прав для выполнения этой команды."
+	msgErrorCaptionNotSet = "Подпись не установлена."
+	msgErrorNoMediaGroup  = "Не удалось найти группу медиа для этой подписи."
+	msgErrorInternal      = "Внутренняя ошибка сервера."
 )
 
 // Command descriptions
