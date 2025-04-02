@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/mymmrac/telego"
@@ -27,8 +26,16 @@ func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, mes
 		// Potentially send to Sentry
 	}
 
-	// Ask the user to provide the caption text
-	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionAskForInput)
+	// Create localizer (default to Russian)
+	lang := locales.DefaultLanguage
+	if message.From != nil && message.From.LanguageCode != "" {
+		// lang = message.From.LanguageCode
+	}
+	localizer := locales.NewLocalizer(lang)
+
+	// Ask the user to provide the caption text using localized message
+	msg := locales.GetMessage(localizer, "MsgCaptionAskForInput", nil, nil)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
 }
 
 // HandleShowCaption handles the /showcaption command.
@@ -36,6 +43,13 @@ func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, mes
 // If no caption is set, it informs the user.
 func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	caption, exists := h.GetActiveCaption(message.Chat.ID)
+
+	// Create localizer (default to Russian)
+	lang := locales.DefaultLanguage
+	if message.From != nil && message.From.LanguageCode != "" {
+		// lang = message.From.LanguageCode
+	}
+	localizer := locales.NewLocalizer(lang)
 
 	// Log the action of showing the caption
 	err := h.actionLogger.LogUserAction(message.From.ID, "command_showcaption", map[string]interface{}{
@@ -48,10 +62,15 @@ func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot *telego.Bot,
 		// Potentially send to Sentry
 	}
 
+	var msg string
 	if !exists {
-		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionShowEmpty)
+		msg = locales.GetMessage(localizer, "MsgCaptionShowEmpty", nil, nil)
+	} else {
+		msg = locales.GetMessage(localizer, "MsgCaptionShowCurrent", map[string]interface{}{
+			"Caption": caption,
+		}, nil)
 	}
-	return h.sendSuccess(ctx, bot, message.Chat.ID, fmt.Sprintf(locales.MsgCaptionShowCurrent, caption))
+	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
 }
 
 // HandleClearCaption handles the /clearcaption command.
@@ -72,7 +91,15 @@ func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot *telego.Bot
 		// Potentially send to Sentry
 	}
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionClearedConfirmation)
+	// Create localizer (default to Russian)
+	lang := locales.DefaultLanguage
+	if message.From != nil && message.From.LanguageCode != "" {
+		// lang = message.From.LanguageCode
+	}
+	localizer := locales.NewLocalizer(lang)
+
+	msg := locales.GetMessage(localizer, "MsgCaptionClearedConfirmation", nil, nil)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
 }
 
 // GetActiveCaption retrieves the currently active caption for a specific chat ID.

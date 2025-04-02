@@ -63,17 +63,18 @@ func NewMessageHandler(
 		userRepo:          userRepo,
 		suggestionManager: suggestionManager,
 	}
-	// Initialize commands using method values directly
+	// Initialize commands - Descriptions will be localized on demand (e.g., in /help handler)
 	h.commands = []Command{
-		{Command: "start", Description: cmdStartDesc, Handler: h.HandleStart},
-		{Command: "help", Description: cmdHelpDesc, Handler: h.HandleHelp},
-		{Command: "status", Description: cmdStatusDesc, Handler: h.HandleStatus},
-		{Command: "version", Description: cmdVersionDesc, Handler: h.HandleVersion},
-		{Command: "caption", Description: cmdCaptionDesc, Handler: h.HandleCaption},
-		{Command: "showcaption", Description: cmdShowCaptionDesc, Handler: h.HandleShowCaption},
-		{Command: "clearcaption", Description: cmdClearCaptionDesc, Handler: h.HandleClearCaption},
-		{Command: "suggest", Description: cmdSuggestDesc, Handler: h.HandleSuggest},
-		{Command: "review", Description: CmdReviewDesc, Handler: h.HandleReview},
+		{Command: "start", Description: "CmdStartDesc", Handler: h.HandleStart},                      // Key for description
+		{Command: "help", Description: "CmdHelpDesc", Handler: h.HandleHelp},                         // Key for description
+		{Command: "status", Description: "CmdStatusDesc", Handler: h.HandleStatus},                   // Key for description
+		{Command: "version", Description: "CmdVersionDesc", Handler: h.HandleVersion},                // Key for description
+		{Command: "caption", Description: "CmdCaptionDesc", Handler: h.HandleCaption},                // Key for description
+		{Command: "showcaption", Description: "CmdShowCaptionDesc", Handler: h.HandleShowCaption},    // Key for description
+		{Command: "clearcaption", Description: "CmdClearCaptionDesc", Handler: h.HandleClearCaption}, // Key for description
+		{Command: "suggest", Description: "CmdSuggestDesc", Handler: h.HandleSuggest},                // Key for description
+		{Command: "review", Description: "CmdReviewDesc", Handler: h.HandleReview},                   // Key for description
+		// TODO: Add other admin commands here if needed
 	}
 	return h
 }
@@ -119,21 +120,31 @@ func (h *MessageHandler) DeleteMediaGroupCaption(groupID string) {
 }
 
 // HandleReview handles the /review command by delegating to the suggestion manager.
-// This command likely initiates the process for reviewing pending suggestions.
 func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, message telego.Message) error {
-	// TODO: Implement review command logic by calling suggestionManager
 	update := telego.Update{Message: &message} // Construct update for manager
 	if h.suggestionManager != nil {
 		return h.suggestionManager.HandleReviewCommand(ctx, update)
 	} else {
 		log.Println("Error: Suggestion manager not initialized in MessageHandler")
-		return h.sendError(ctx, bot, message.Chat.ID, errors.New(locales.MsgErrorGeneral))
+		// Use localized error message
+		lang := locales.DefaultLanguage // Default lang
+		if message.From != nil && message.From.LanguageCode != "" {
+			// lang = message.From.LanguageCode
+		}
+		localizer := locales.NewLocalizer(lang)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 	}
 }
 
 // UserRepo provides access to the user repository dependency.
 func (h *MessageHandler) UserRepo() database.UserRepository {
 	return h.userRepo
+}
+
+// ActionLogger provides access to the user action logger dependency.
+func (h *MessageHandler) ActionLogger() database.UserActionLogger {
+	return h.actionLogger
 }
 
 // ProcessSuggestionCallback delegates the handling of incoming callback queries

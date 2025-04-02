@@ -1,0 +1,154 @@
+[
+  {
+    "id": "MsgErrorGeneral",
+    "translation": "An error occurred. Please try again."
+  },
+  {
+    "id": "MsgErrorRequiresAdmin",
+    "translation": "This command is only available to administrators."
+  },
+  {
+    "id": "MsgSuccessGeneric",
+    "translation": "Done!"
+  },
+  {
+    "id": "MsgPostSentToChannel",
+    "translation": "Post sent to the channel."
+  },
+  {
+    "id": "MsgCaptionSetConfirmation",
+    "translation": "Caption set. It will be added to the next photo/video/group."
+  },
+  {
+    "id": "MsgCaptionOverwriteConfirmation",
+    "translation": "Caption updated."
+  },
+  {
+    "id": "MsgCaptionAskForInput",
+    "translation": "Please enter the new caption:"
+  },
+  {
+    "id": "MsgCaptionClearedConfirmation",
+    "translation": "Caption cleared."
+  },
+  {
+    "id": "MsgCaptionShowCurrent",
+    "translation": "Current caption: `{{.Caption}}`"
+  },
+  {
+    "id": "MsgCaptionShowEmpty",
+    "translation": "No active caption is set."
+  },
+  {
+    "id": "MsgSuggestRequiresSubscription",
+    "translation": "To suggest a post, you must be a channel subscriber. Subscribe and try again."
+  },
+  {
+    "id": "MsgSuggestSendContentPrompt",
+    "translation": "Okay! Now send me ONE message with a photo (or multiple photos as a media group, up to 10). The message text will be saved as the suggestion's comment (visible only to admins)."
+  },
+  {
+    "id": "MsgSuggestAlreadyWaitingForContent",
+    "translation": "I'm already waiting for content for your suggestion. Please send it."
+  },
+  {
+    "id": "MsgSuggestionReceivedConfirmation",
+    "translation": "Thank you! Your suggestion has been received and will be reviewed by the administration."
+  },
+  {
+    "id": "MsgSuggestionRequiresPhoto",
+    "translation": "Please send a message with a photo (or a media group of photos). The text will be used as a comment."
+  },
+  {
+    "id": "MsgStart",
+    "translation": "Hi! I'm a bot for posting memes to the channel. Send me a photo or text, and I'll post it."
+  },
+  {
+    "id": "MsgHelpFooter",
+    "translation": "\n\nSend me a photo or text to publish. Use /caption [text] to add a caption to the next message."
+  },
+  {
+    "id": "MsgStatus",
+    "translation": "Bot running\nChannel ID: {{.ChannelID}}\nCurrent caption: {{.Caption}}"
+  },
+  {
+    "id": "MsgVersion",
+    "translation": "Bot version: {{.Version}}"
+  },
+  {
+    "id": "MsgErrorUnknownCommand",
+    "translation": "😕 Sorry, I don't recognize that command. Use /help for a list of available commands."
+  },
+  {
+    "id": "MsgErrorNotImplemented",
+    "translation": "This feature is not implemented yet."
+  },
+  {
+      "id": "CmdStartDesc",
+      "translation": "Starts the bot"
+  },
+  {
+      "id": "CmdHelpDesc",
+      "translation": "Shows this help message"
+  },
+  {
+      "id": "CmdStatusDesc",
+      "translation": "Shows bot status and your ID"
+  },
+  {
+      "id": "CmdVersionDesc",
+      "translation": "Shows the bot version"
+  },
+  {
+      "id": "CmdCaptionDesc",
+      "translation": "Set or update the caption for the next photo group"
+  },
+  {
+      "id": "CmdShowCaptionDesc",
+      "translation": "Show the current active caption"
+  },
+  {
+      "id": "CmdClearCaptionDesc",
+      "translation": "Clear the current active caption"
+  },
+  {
+      "id": "CmdSuggestDesc",
+      "translation": "Suggest a post for publication"
+  },
+  {
+      "id": "CmdReviewDesc",
+      "translation": "[Admin] Review the queue of suggested posts"
+  },
+  {
+    "id": "MsgReviewSessionExpired",
+    "translation": "Review session expired or suggestion outdated. Please use /review again."
+  },
+  {
+    "id": "MsgErrorDBUpdateFailedSuffix",
+    "translation": " (DB status update failed)"
+  },
+  {
+    "id": "MsgReviewFrom",
+    "translation": "From: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})"
+  },
+  {
+    "id": "MsgReviewCaption",
+    "translation": "Caption: {{.Caption}}"
+  },
+  {
+    "id": "MsgReviewErrorLoadMedia",
+    "translation": "*Error:* Could not load media for suggestion `{{.SuggestionID}}`."
+  },
+  {
+    "id": "MsgReviewActionApprovedWithDBError",
+    "translation": "Suggestion approved and published (DB status update failed)."
+  },
+  {
+    "id": "MsgReviewSessionStarting",
+    "translation": "Review command received, starting review session..."
+  },
+  {
+    "id": "MsgReviewErrorStartingSession",
+    "translation": "Error starting review session."
+  }
+] 

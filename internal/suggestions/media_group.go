@@ -39,9 +39,14 @@ func (m *Manager) processSuggestionMediaGroup(ctx context.Context, userID, chatI
 		}
 	}
 
+	// Create localizer (default to Russian)
+	lang := locales.DefaultLanguage
+	localizer := locales.NewLocalizer(lang)
+
 	if len(fileIDs) == 0 {
 		log.Printf("[processSuggestionMediaGroup] Group %s for user %d contained no valid photos. Sending error.", mediaGroupID, userID)
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestionRequiresPhoto))
+		errorMsg := locales.GetMessage(localizer, "MsgSuggestionRequiresPhoto", nil, nil)
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
 		if err != nil {
 			log.Printf("[processSuggestionMediaGroup] Error sending no-photo error to user %d: %v", userID, err)
 		}
@@ -51,7 +56,8 @@ func (m *Manager) processSuggestionMediaGroup(ctx context.Context, userID, chatI
 
 	if len(fileIDs) > 10 {
 		log.Printf("[processSuggestionMediaGroup] Group %s for user %d has too many photos (%d). Sending error.", mediaGroupID, userID, len(fileIDs))
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestionTooManyPhotosError))
+		errorMsg := locales.GetMessage(localizer, "MsgSuggestionTooManyPhotosError", nil, nil)
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
 		if err != nil {
 			log.Printf("[processSuggestionMediaGroup] Error sending too-many-photos error to user %d: %v", userID, err)
 		}
@@ -80,7 +86,8 @@ func (m *Manager) processSuggestionMediaGroup(ctx context.Context, userID, chatI
 	err := m.AddSuggestion(ctx, suggestionForDB)
 	if err != nil {
 		log.Printf("[processSuggestionMediaGroup] Error saving media group suggestion for user %d: %v", userID, err)
-		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestInternalProcessingError))
+		errorMsg := locales.GetMessage(localizer, "MsgSuggestInternalProcessingError", nil, nil)
+		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
 		if sendErr != nil {
 			log.Printf("[processSuggestionMediaGroup] Error sending internal error message to user %d: %v", userID, sendErr)
 		}
@@ -89,7 +96,8 @@ func (m *Manager) processSuggestionMediaGroup(ctx context.Context, userID, chatI
 	}
 
 	m.SetUserState(userID, StateIdle)
-	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestionReceivedConfirmation))
+	confirmationMsg := locales.GetMessage(localizer, "MsgSuggestionReceivedConfirmation", nil, nil)
+	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), confirmationMsg))
 	if err != nil {
 		log.Printf("[processSuggestionMediaGroup] Error sending confirmation for group %s to user %d: %v", mediaGroupID, userID, err)
 	}

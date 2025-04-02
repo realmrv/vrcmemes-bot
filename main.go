@@ -13,12 +13,16 @@ import (
 	"vrcmemes-bot/database"
 	"vrcmemes-bot/handlers"
 	"vrcmemes-bot/internal/suggestions"
+	"vrcmemes-bot/pkg/locales"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/mymmrac/telego"
 )
 
 func main() {
+	// Initialize localization bundle
+	locales.Init()
+
 	// Loading configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {

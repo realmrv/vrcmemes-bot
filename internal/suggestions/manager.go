@@ -61,15 +61,21 @@ func (m *Manager) HandleSuggestCommand(ctx context.Context, update telego.Update
 	chatID := update.Message.Chat.ID
 	userID := update.Message.From.ID
 
+	// Default to Russian
+	lang := locales.DefaultLanguage
+	localizer := locales.NewLocalizer(lang)
+
 	if m.GetUserState(userID) == StateAwaitingSuggestion {
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestAlreadyWaitingForContent))
+		msg := locales.GetMessage(localizer, "MsgSuggestAlreadyWaitingForContent", nil, nil)
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
 		return err
 	}
 
 	isSubscribed, err := m.CheckSubscription(ctx, userID)
 	if err != nil {
 		log.Printf("Error checking subscription for user %d: %v", userID, err)
-		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestErrorCheckingSubscription))
+		msg := locales.GetMessage(localizer, "MsgSuggestErrorCheckingSubscription", nil, nil)
+		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
 		if sendErr != nil {
 			log.Printf("Error sending subscription check error message to user %d: %v", userID, sendErr)
 		}
@@ -77,16 +83,19 @@ func (m *Manager) HandleSuggestCommand(ctx context.Context, update telego.Update
 	}
 
 	if !isSubscribed {
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestRequiresSubscription))
+		msg := locales.GetMessage(localizer, "MsgSuggestRequiresSubscription", nil, nil)
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
 		return err
 	}
 
 	m.SetUserState(userID, StateAwaitingSuggestion)
-	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestSendContentPrompt))
+	promptMsg := locales.GetMessage(localizer, "MsgSuggestSendContentPrompt", nil, nil)
+	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), promptMsg))
 	if err != nil {
 		m.SetUserState(userID, StateIdle) // Rollback state if sending prompt fails
 		log.Printf("Error sending suggest prompt to user %d: %v", userID, err)
-		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestInternalProcessingError))
+		errorMsg := locales.GetMessage(localizer, "MsgSuggestInternalProcessingError", nil, nil)
+		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
 		if sendErr != nil {
 			log.Printf("Error sending internal error message after prompt failure to user %d: %v", userID, sendErr)
 		}
@@ -106,6 +115,13 @@ func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (proc
 	userID := message.From.ID
 	chatID := message.Chat.ID
 
+	// Default to Russian
+	lang := locales.DefaultLanguage
+	if message.From.LanguageCode != "" {
+		// lang = message.From.LanguageCode
+	}
+	localizer := locales.NewLocalizer(lang)
+
 	// Handle Media Group
 	if message.MediaGroupID != "" {
 		if len(message.Photo) == 0 {
@@ -118,7 +134,8 @@ func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (proc
 		group := m.getSuggestionGroup(message.MediaGroupID)
 		if len(group) == 1 {
 			log.Printf("[HandleMessage] Started media group timer for group %s, user %d", message.MediaGroupID, userID)
-			_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestionMediaGroupPartReceived))
+			msg := locales.GetMessage(localizer, "MsgSuggestionMediaGroupPartReceived", nil, nil)
+			_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
 			if sendErr != nil {
 				log.Printf("[HandleMessage] Error sending media group part received confirmation to user %d: %v", userID, sendErr)
 			}
@@ -149,7 +166,8 @@ func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (proc
 		err = m.AddSuggestion(ctx, suggestionForDB)
 		if err != nil {
 			log.Printf("[HandleMessage] Error saving single photo suggestion for user %d: %v", userID, err)
-			_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestInternalProcessingError))
+			errorMsg := locales.GetMessage(localizer, "MsgSuggestInternalProcessingError", nil, nil)
+			_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
 			if sendErr != nil {
 				log.Printf("[HandleMessage] Error sending internal error message to user %d: %v", userID, sendErr)
 			}
@@ -158,7 +176,8 @@ func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (proc
 		}
 
 		m.SetUserState(userID, StateIdle)
-		_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestionReceivedConfirmation))
+		confirmationMsg := locales.GetMessage(localizer, "MsgSuggestionReceivedConfirmation", nil, nil)
+		_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), confirmationMsg))
 		if err != nil {
 			log.Printf("[HandleMessage] Error sending single photo confirmation to user %d: %v", userID, err)
 		}
@@ -167,7 +186,8 @@ func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (proc
 
 	// Wrong Message Type
 	log.Printf("[HandleMessage] User %d sent non-photo/non-media-group message while awaiting suggestion.", userID)
-	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgSuggestionRequiresPhoto))
+	errorMsg := locales.GetMessage(localizer, "MsgSuggestionRequiresPhoto", nil, nil)
+	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
 	return true, err
 }
 

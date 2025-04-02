@@ -23,10 +23,19 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 		return false, nil
 	}
 
-	parts := strings.Split(callbackData, ":")
+	// Parse callback data
+	parts := strings.Split(query.Data, ":")
+
+	lang := locales.DefaultLanguage
+	if query.From.LanguageCode != "" {
+		// lang = query.From.LanguageCode // TODO: Use user language
+	}
+	localizer := locales.NewLocalizer(lang)
+
 	if len(parts) != 4 {
 		log.Printf("[CallbackQuery] Invalid data format: %s", callbackData)
-		_ = m.answerCallbackQuery(ctx, query.ID, locales.MsgErrorGeneral, true)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_ = m.answerCallbackQuery(ctx, query.ID, errorMsg, true)
 		return true, fmt.Errorf("invalid callback data format")
 	}
 
@@ -36,14 +45,16 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 	currentIndex, err := strconv.Atoi(indexStr)
 	if err != nil {
 		log.Printf("[CallbackQuery] Invalid index in data: %s, err: %v", callbackData, err)
-		_ = m.answerCallbackQuery(ctx, query.ID, locales.MsgErrorGeneral, true)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_ = m.answerCallbackQuery(ctx, query.ID, errorMsg, true)
 		return true, fmt.Errorf("invalid index in callback data")
 	}
 
 	suggestionID, err := primitive.ObjectIDFromHex(suggestionIDHex)
 	if err != nil {
 		log.Printf("[CallbackQuery] Invalid suggestion ID hex in data: %s, err: %v", callbackData, err)
-		_ = m.answerCallbackQuery(ctx, query.ID, locales.MsgErrorGeneral, true)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_ = m.answerCallbackQuery(ctx, query.ID, errorMsg, true)
 		return true, fmt.Errorf("invalid suggestion ID in callback data")
 	}
 
@@ -52,12 +63,14 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 	isAdmin, err := m.IsAdmin(ctx, adminID)
 	if err != nil {
 		log.Printf("[CallbackQuery] Error checking admin status for user %d: %v", adminID, err)
-		_ = m.answerCallbackQuery(ctx, query.ID, locales.MsgErrorGeneral, true)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_ = m.answerCallbackQuery(ctx, query.ID, errorMsg, true)
 		return true, err
 	}
 	if !isAdmin {
 		log.Printf("[CallbackQuery] User %d is not admin, ignoring review action.", adminID)
-		_ = m.answerCallbackQuery(ctx, query.ID, locales.MsgErrorRequiresAdmin, true)
+		adminErrorMsg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		_ = m.answerCallbackQuery(ctx, query.ID, adminErrorMsg, true)
 		return true, nil
 	}
 
@@ -67,7 +80,8 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 
 	if !sessionExists || currentIndex < 0 || currentIndex >= len(session.Suggestions) || session.Suggestions[currentIndex].ID != suggestionID {
 		log.Printf("[CallbackQuery] Invalid session or suggestion mismatch for admin %d, index %d, ID %s", adminID, currentIndex, suggestionIDHex)
-		_ = m.answerCallbackQuery(ctx, query.ID, "Review session expired or suggestion outdated. Please use /review again.", true)
+		expiredMsg := locales.GetMessage(localizer, "MsgReviewSessionExpired", nil, nil)
+		_ = m.answerCallbackQuery(ctx, query.ID, expiredMsg, true)
 		m.reviewSessionsMutex.Lock()
 		delete(m.reviewSessions, adminID)
 		m.reviewSessionsMutex.Unlock()
@@ -107,7 +121,8 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 		}
 	default:
 		log.Printf("[CallbackQuery] Unknown action: %s", action)
-		_ = m.answerCallbackQuery(ctx, query.ID, locales.MsgErrorGeneral, true)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_ = m.answerCallbackQuery(ctx, query.ID, errorMsg, true)
 		return true, fmt.Errorf("unknown review action: %s", action)
 	}
 

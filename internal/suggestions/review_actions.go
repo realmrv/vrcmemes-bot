@@ -16,23 +16,32 @@ import (
 func (m *Manager) handleApproveAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, index int, reviewMessageID int) error {
 	suggestionToPublish := session.Suggestions[index]
 
+	// Create localizer (default to Russian)
+	lang := locales.DefaultLanguage
+	// TODO: Get admin lang pref
+	localizer := locales.NewLocalizer(lang)
+
 	err := m.publishSuggestion(ctx, suggestionToPublish)
 	if err != nil {
 		log.Printf("[handleApproveAction] Failed to publish suggestion %s: %v", suggestionToPublish.ID.Hex(), err)
-		_ = m.answerCallbackQuery(ctx, queryID, locales.MsgReviewErrorDuringPublishing, true)
+		errorMsg := locales.GetMessage(localizer, "MsgReviewErrorDuringPublishing", nil, nil)
+		_ = m.answerCallbackQuery(ctx, queryID, errorMsg, true)
 		return err
 	}
 
 	err = m.UpdateSuggestionStatus(ctx, suggestionToPublish.ID, models.StatusApproved, adminID)
 	if err != nil {
 		log.Printf("[handleApproveAction] Failed to update suggestion %s status to approved after publishing: %v", suggestionToPublish.ID.Hex(), err)
-		_ = m.answerCallbackQuery(ctx, queryID, locales.MsgReviewActionApproved+" (DB status update failed)", false)
+		// Send confirmation but mention DB error
+		dbErrorMsg := locales.GetMessage(localizer, "MsgReviewActionApprovedWithDBError", nil, nil)
+		_ = m.answerCallbackQuery(ctx, queryID, dbErrorMsg, false)
 		_ = m.deleteReviewMessage(ctx, adminID, reviewMessageID)
 		_ = m.processNextSuggestion(ctx, adminID, session, index)
 		return err // Return the error after attempting cleanup
 	}
 
-	_ = m.answerCallbackQuery(ctx, queryID, locales.MsgReviewActionApproved, false)
+	approvedMsg := locales.GetMessage(localizer, "MsgReviewActionApproved", nil, nil)
+	_ = m.answerCallbackQuery(ctx, queryID, approvedMsg, false)
 	_ = m.deleteReviewMessage(ctx, adminID, reviewMessageID)
 	return m.processNextSuggestion(ctx, adminID, session, index)
 }
@@ -41,15 +50,21 @@ func (m *Manager) handleApproveAction(ctx context.Context, queryID string, admin
 func (m *Manager) handleRejectAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, index int, reviewMessageID int) error {
 	suggestion := session.Suggestions[index]
 
+	// Create localizer (default to Russian)
+	lang := locales.DefaultLanguage
+	localizer := locales.NewLocalizer(lang)
+
 	err := m.UpdateSuggestionStatus(ctx, suggestion.ID, models.StatusRejected, adminID)
 	if err != nil {
 		log.Printf("[handleRejectAction] Failed to update suggestion %s status to rejected: %v", suggestion.ID.Hex(), err)
-		_ = m.answerCallbackQuery(ctx, queryID, locales.MsgErrorGeneral, true) // Use general error message
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_ = m.answerCallbackQuery(ctx, queryID, errorMsg, true) // Use general error message
 		// Don't proceed to next suggestion if DB update failed, admin might want to retry
 		return err
 	}
 
-	_ = m.answerCallbackQuery(ctx, queryID, locales.MsgReviewActionRejected, false)
+	rejectedMsg := locales.GetMessage(localizer, "MsgReviewActionRejected", nil, nil)
+	_ = m.answerCallbackQuery(ctx, queryID, rejectedMsg, false)
 	_ = m.deleteReviewMessage(ctx, adminID, reviewMessageID)
 	return m.processNextSuggestion(ctx, adminID, session, index)
 }
@@ -120,7 +135,12 @@ func (m *Manager) processNextSuggestion(ctx context.Context, adminID int64, sess
 		delete(m.reviewSessions, adminID)
 
 		m.reviewSessionsMutex.Unlock()
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(adminID), locales.MsgReviewQueueIsEmpty))
+		// Create localizer (default to Russian)
+		lang := locales.DefaultLanguage
+		// TODO: Get admin lang pref?
+		localizer := locales.NewLocalizer(lang)
+		queueEmptyMsg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(adminID), queueEmptyMsg))
 		m.reviewSessionsMutex.Lock() // Re-acquire lock
 		if err != nil {
 			log.Printf("[processNextSuggestion] Error sending queue empty message to admin %d: %v", adminID, err)

@@ -24,6 +24,13 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 		return nil
 	}
 
+	// Create localizer (default to Russian)
+	lang := locales.DefaultLanguage
+	if message.From != nil && message.From.LanguageCode != "" {
+		// lang = message.From.LanguageCode
+	}
+	localizer := locales.NewLocalizer(lang)
+
 	// Check if we are waiting for a caption from this user/chat
 	if _, waiting := h.waitingForCaption.Load(message.Chat.ID); waiting {
 		_, hadPreviousCaption := h.GetActiveCaption(message.Chat.ID)
@@ -49,11 +56,15 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 			// Potentially send to Sentry
 		}
 
-		// Send confirmation message
+		// Send confirmation message using localized strings
+		var confirmationMsgID string
 		if hadPreviousCaption {
-			return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionOverwriteConfirmation)
+			confirmationMsgID = "MsgCaptionOverwriteConfirmation"
+		} else {
+			confirmationMsgID = "MsgCaptionSetConfirmation"
 		}
-		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionSetConfirmation)
+		msg := locales.GetMessage(localizer, confirmationMsgID, nil, nil)
+		return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
 	}
 
 	// --- Handling regular text message (forwarding to channel if admin) ---
@@ -61,12 +72,15 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 	// Check admin rights before posting text to channel
 	isAdmin, err := h.isUserAdmin(ctx, bot, message.From.ID)
 	if err != nil {
-		// Wrap error from isUserAdmin check
-		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to check admin status: %w", err))
+		// Use localized error message?
+		wrappedErr := fmt.Errorf("failed to check admin status: %w", err)
+		// errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil) // Example
+		return h.sendError(ctx, bot, message.Chat.ID, wrappedErr) // Keep original error for now
 	}
 	if !isAdmin {
-		// If not admin, inform the user and do nothing else
-		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgErrorRequiresAdmin)
+		// Inform the user using localized message
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
 	}
 
 	// User is admin, proceed to send the message to the channel
@@ -119,7 +133,9 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 		// Potentially send to Sentry
 	}
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgPostSentToChannel)
+	// Send confirmation using localized message
+	msg := locales.GetMessage(localizer, "MsgPostSentToChannel", nil, nil)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
 }
 
 // HandlePhoto handles incoming photo messages.
@@ -132,14 +148,22 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 		return nil // Or handle as an error? For now, just ignore.
 	}
 
+	// Create localizer (default to Russian)
+	lang := locales.DefaultLanguage
+	if message.From != nil && message.From.LanguageCode != "" {
+		// lang = message.From.LanguageCode
+	}
+	localizer := locales.NewLocalizer(lang)
+
 	// Check admin rights before posting photo to channel
 	isAdmin, err := h.isUserAdmin(ctx, bot, message.From.ID)
 	if err != nil {
-		// Wrap error from isUserAdmin check
-		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to check admin status: %w", err))
+		wrappedErr := fmt.Errorf("failed to check admin status: %w", err)
+		return h.sendError(ctx, bot, message.Chat.ID, wrappedErr) // Keep original error
 	}
 	if !isAdmin {
-		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgErrorRequiresAdmin)
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
 	}
 
 	// Get the currently active caption for this user/chat (if any)
@@ -197,9 +221,9 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 		// Potentially send to Sentry
 	}
 
-	// Send confirmation back to the user
-	// The message text is the same whether a caption was used or not, based on previous code.
-	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgPostSentToChannel)
+	// Send confirmation using localized message
+	msg := locales.GetMessage(localizer, "MsgPostSentToChannel", nil, nil)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
 }
 
 // ProcessSuggestionMessage checks if the message is part of the suggestion workflow
@@ -228,3 +252,24 @@ func (h *MessageHandler) HandleMediaGroup(ctx context.Context, bot *telego.Bot, 
 	// ... (Potential future implementation or removal) ...
 }
 */
+
+// sendError sends a standardized, localized error message to the user.
+func (h *MessageHandler) sendError(ctx context.Context, bot *telego.Bot, chatID int64, err error) error {
+	lang := locales.DefaultLanguage
+	// TODO: Determine language based on chatID preferences if possible
+	localizer := locales.NewLocalizer(lang)
+
+	// Log the original error for debugging
+	log.Printf("Sending error message for chat %d: %v", chatID, err)
+
+	// Send localized message to the user, potentially using the error message
+	// Note: We are using MsgErrorGeneral here, which doesn't have an {{.Error}} template.
+	// If you want to include the specific error, consider a different message ID or modifying MsgErrorGeneral.
+	msg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil) // Pass nil for data as MsgErrorGeneral doesn't use it
+
+	_, sendErr := bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
+	if sendErr != nil {
+		log.Printf("Failed to send error message to chat %d: %v", chatID, sendErr)
+	}
+	return err // Return the original error
+}

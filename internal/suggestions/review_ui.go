@@ -20,7 +20,10 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 
 	if !ok || suggestionIndex < 0 || suggestionIndex >= len(session.Suggestions) {
 		log.Printf("[SendReviewMessage] Invalid session or index for admin %d, index %d", adminID, suggestionIndex)
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgReviewQueueIsEmpty))
+		lang := locales.DefaultLanguage
+		localizer := locales.NewLocalizer(lang)
+		msg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
 		m.reviewSessionsMutex.Lock()
 		delete(m.reviewSessions, adminID)
 		m.reviewSessionsMutex.Unlock()
@@ -30,7 +33,14 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	suggestion := session.Suggestions[suggestionIndex]
 	totalSuggestionsInBatch := len(session.Suggestions)
 
-	indexText := fmt.Sprintf(locales.MsgReviewCurrentSuggestionIndex, suggestionIndex+1, totalSuggestionsInBatch)
+	lang := locales.DefaultLanguage
+	localizer := locales.NewLocalizer(lang)
+
+	indexText := locales.GetMessage(localizer, "MsgReviewCurrentSuggestionIndex", map[string]interface{}{
+		"Index": suggestionIndex + 1,
+		"Total": totalSuggestionsInBatch,
+	}, nil)
+
 	submitterUsername := suggestion.Username
 	if submitterUsername == "" {
 		submitterUsername = "(no username)"
@@ -38,18 +48,27 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 		submitterUsername = escapeMarkdownV2(submitterUsername)
 	}
 	submitterFirstName := escapeMarkdownV2(suggestion.FirstName)
-	// Escape the literal parentheses in the format string for MarkdownV2
-	submitterInfo := fmt.Sprintf("From: %s \\(@%s, ID: %d\\)", submitterFirstName, submitterUsername, suggestion.SuggesterID)
-	captionText := "(No Caption)"
+	submitterInfo := locales.GetMessage(localizer, "MsgReviewFrom", map[string]interface{}{
+		"FirstName": submitterFirstName,
+		"Username":  submitterUsername,
+		"UserID":    suggestion.SuggesterID,
+	}, nil)
+	captionDisplay := "(No Caption)"
 	if suggestion.Caption != "" {
-		captionText = escapeMarkdownV2(suggestion.Caption)
+		captionDisplay = suggestion.Caption
 	}
-	messageText := fmt.Sprintf("%s\n%s\nCaption: `%s`", indexText, submitterInfo, captionText)
+	captionText := locales.GetMessage(localizer, "MsgReviewCaption", map[string]interface{}{
+		"Caption": fmt.Sprintf("`%s`", escapeMarkdownV2(captionDisplay)),
+	}, nil)
+	messageText := fmt.Sprintf("%s\n%s\n%s", indexText, submitterInfo, captionText)
 
 	inputMedia := m.createInputMediaFromSuggestion(suggestion)
 	if len(inputMedia) == 0 {
 		log.Printf("[SendReviewMessage] No valid media found for suggestion ID %s", suggestion.ID.Hex())
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), "*Error:* Could not load media for suggestion `"+suggestion.ID.Hex()+"`.").WithParseMode(telego.ModeMarkdownV2))
+		errorMsg := locales.GetMessage(localizer, "MsgReviewErrorLoadMedia", map[string]interface{}{
+			"SuggestionID": suggestion.ID.Hex(),
+		}, nil)
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg).WithParseMode(telego.ModeMarkdownV2))
 		return err
 	}
 
@@ -74,23 +93,18 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	var sentMessage *telego.Message
 	var err error
 
-	// Prepare the first media item with the original caption if it exists
 	if len(inputMedia) > 0 {
 		if photo, ok := inputMedia[0].(*telego.InputMediaPhoto); ok {
 			if suggestion.Caption != "" {
-				photo.Caption = suggestion.Caption // Keep original caption for the media group itself
-				// Consider escaping for the specific ParseMode if you set one for the media
+				photo.Caption = suggestion.Caption
 			}
 		} else if video, ok := inputMedia[0].(*telego.InputMediaVideo); ok {
 			if suggestion.Caption != "" {
 				video.Caption = suggestion.Caption
-				// Consider escaping
 			}
 		}
-		// Do NOT set messageText or ParseMode here for the media group itself
 	}
 
-	// Send the media group first
 	_, err = m.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
 		ChatID: tu.ID(chatID),
 		Media:  inputMedia,
@@ -99,7 +113,6 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	if err != nil {
 		log.Printf("[SendReviewMessage] Error sending review media group for suggestion %s to admin %d: %v", suggestionIDHex, adminID, err)
 	} else {
-		// If media group sent successfully, send the control message with text and buttons
 		sentMessage, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), messageText).WithReplyMarkup(keyboard).WithParseMode(telego.ModeMarkdownV2))
 		if err != nil {
 			log.Printf("[SendReviewMessage] Error sending control message for suggestion %s to admin %d after media group: %v", suggestionIDHex, adminID, err)
@@ -109,17 +122,16 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	}
 
 	if err != nil {
-		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), locales.MsgErrorGeneral))
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
 		if sendErr != nil {
 			log.Printf("[SendReviewMessage] Error sending general error message after send failure: %v", sendErr)
 		}
 		return err
 	}
 
-	// Store the message ID of the control message
 	m.reviewSessionsMutex.Lock()
 	if currentSession, exists := m.reviewSessions[adminID]; exists {
-		// Ensure sentMessage is not nil before accessing MessageID
 		if sentMessage != nil {
 			currentSession.LastReviewMessageID = sentMessage.MessageID
 			currentSession.CurrentIndex = suggestionIndex
