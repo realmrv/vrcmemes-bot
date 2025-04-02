@@ -6,9 +6,13 @@ Telegram bot for posting VRChat memes to a channel.
 
 - Posts memes to a specified Telegram channel
 - Debug mode for development
-- Error tracking with Sentry
+- Error tracking with Sentry (including panic recovery)
+- Enhanced error handling with context wrapping
+- Improved logging with contextual information
+- Detailed GoDoc comments throughout the codebase
+- Robust media group handling with rate limit retries
 - Environment-based configuration
-- MongoDB integration for user tracking
+- MongoDB integration for user tracking and logging
 - Docker support (Development & Production environments)
 - Hot-reload development mode with Air
 
@@ -22,6 +26,7 @@ Telegram bot for posting VRChat memes to a channel.
   - `github.com/mymmrac/telego v1.0.2`
   - `github.com/getsentry/sentry-go v0.31.1`
   - `go.mongodb.org/mongo-driver v1.17.3`
+  - `github.com/joho/godotenv v1.5.1` (for loading `.env` files)
 
 ## Installation & Running with Docker (Recommended)
 

@@ -14,18 +14,22 @@ import (
 	"vrcmemes-bot/pkg/locales" // Import locales package
 )
 
-// HandleStart handles the /start command
+// HandleStart handles the /start command.
+// It sets up the bot commands, updates user info, logs the action, and sends a welcome message.
 func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	if err := h.setupCommands(ctx, bot); err != nil {
-		return h.sendError(ctx, bot, message.Chat.ID, err)
+		// Add context before returning the error
+		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to set up commands: %w", err))
 	}
 
-	// Update user information
+	// Placeholder: Determine if the user is an admin (requires implementation)
 	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID) // isUserAdmin will also need to be updated
 	isAdmin := false // Placeholder, need to update isUserAdmin
 	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_start")
 	if err != nil {
-		log.Printf("Failed to update user info: %v", err)
+		// Log internal error, don't return to user unless critical
+		log.Printf("Failed to update user info for user %d during /start: %v", message.From.ID, err)
+		// Potentially send to Sentry here
 	}
 
 	// Log start command action
@@ -33,26 +37,30 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, messa
 		"chat_id": message.Chat.ID,
 	})
 	if err != nil {
-		log.Printf("Failed to log start command: %v", err)
+		// Log internal error
+		log.Printf("Failed to log /start command for user %d: %v", message.From.ID, err)
+		// Potentially send to Sentry here
 	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgStart)
 }
 
-// HandleHelp handles the /help command
+// HandleHelp handles the /help command.
+// It generates a help message listing available commands, updates user info, logs the action, and sends the help text.
 func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	var helpText string
 	for _, cmd := range h.commands {
-		helpText += fmt.Sprintf("/%s - %s\n", cmd.Command, cmd.Description)
+		helpText += fmt.Sprintf("/%s - %s\\n", cmd.Command, cmd.Description)
 	}
 	helpText += locales.MsgHelpFooter
 
-	// Update user information
+	// Placeholder: Determine admin status
 	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID)
 	isAdmin := false // Placeholder
 	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_help")
 	if err != nil {
-		log.Printf("Failed to update user info: %v", err)
+		log.Printf("Failed to update user info for user %d during /help: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
 	// Log help command action
@@ -60,23 +68,26 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 		"chat_id": message.Chat.ID,
 	})
 	if err != nil {
-		log.Printf("Failed to log help command: %v", err)
+		log.Printf("Failed to log /help command for user %d: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, helpText)
 }
 
-// HandleStatus handles the /status command
+// HandleStatus handles the /status command.
+// It retrieves the current active caption, formats a status message, updates user info, logs the action, and sends the status.
 func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, message telego.Message) error {
-	caption, _ := h.GetActiveCaption(message.Chat.ID)
+	caption, _ := h.GetActiveCaption(message.Chat.ID) // Assuming GetActiveCaption handles potential errors or defaults gracefully
 	statusText := fmt.Sprintf(locales.MsgStatus, h.channelID, caption)
 
-	// Update user information
+	// Placeholder: Determine admin status
 	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID)
 	isAdmin := false // Placeholder
 	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_status")
 	if err != nil {
-		log.Printf("Failed to update user info: %v", err)
+		log.Printf("Failed to update user info for user %d during /status: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
 	// Log status command action
@@ -85,26 +96,29 @@ func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, mess
 		"caption": caption,
 	})
 	if err != nil {
-		log.Printf("Failed to log status command: %v", err)
+		log.Printf("Failed to log /status command for user %d: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, statusText)
 }
 
-// HandleVersion handles the /version command
+// HandleVersion handles the /version command.
+// It retrieves the application version, formats a version message, updates user info, logs the action, and sends the version.
 func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	version := os.Getenv("VERSION")
 	if version == "" {
-		version = "dev"
+		version = "dev" // Default version if not set
 	}
 	versionText := fmt.Sprintf(locales.MsgVersion, version)
 
-	// Update user information
+	// Placeholder: Determine admin status
 	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID)
 	isAdmin := false // Placeholder
 	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_version")
 	if err != nil {
-		log.Printf("Failed to update user info: %v", err)
+		log.Printf("Failed to update user info for user %d during /version: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
 	// Log version command action
@@ -113,7 +127,8 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 		"version": version,
 	})
 	if err != nil {
-		log.Printf("Failed to log version command: %v", err)
+		log.Printf("Failed to log /version command for user %d: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, versionText)
@@ -129,25 +144,35 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 // ... existing code ...
 
 // HandleSuggest handles the /suggest command by calling the suggestion manager.
+// It constructs a telego.Update object and passes it to the suggestion manager's handler.
+// Errors during suggestion handling are logged, assuming the manager handles user feedback.
 func (h *MessageHandler) HandleSuggest(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	// We need the full Update object for the manager's handler
 	// Construct a minimal Update containing the Message
 	update := telego.Update{Message: &message}
 
-	// Pass context and the constructed update to the manager
+	// Delegate the handling to the suggestion manager
 	err := h.suggestionManager.HandleSuggestCommand(ctx, update)
 	if err != nil {
-		// The manager handles sending messages to the user on errors like not subscribed.
-		// We just log the error here if one occurs during the process.
+		// The manager is expected to handle sending messages to the user on errors
+		// (e.g., user not subscribed, invalid format). We just log the error here
+		// if one occurs during the manager's processing.
 		log.Printf("[HandleSuggest] Error from suggestionManager.HandleSuggestCommand for user %d: %v", message.From.ID, err)
-		// Optionally, send a generic error message if the manager didn't?
-		// For now, assume manager handles user feedback on errors.
+		// Potentially send to Sentry
 	}
-	return nil // Return nil to prevent generic error message from bot loop
+	// Return nil to prevent the main bot loop from sending a generic error message.
+	// User feedback should be handled entirely by the suggestionManager.
+	return nil
 }
 
-// setupCommands registers bot commands
+// setupCommands registers the bot's commands with Telegram.
+// It builds the list of commands from the handler's configuration and uses the bot instance to set them.
 func (h *MessageHandler) setupCommands(ctx context.Context, bot *telego.Bot) error {
+	if len(h.commands) == 0 {
+		log.Println("No commands defined in handler, skipping SetMyCommands.")
+		return nil // No commands to set is not an error
+	}
+
 	commands := make([]telego.BotCommand, len(h.commands))
 	for i, cmd := range h.commands {
 		commands[i] = telego.BotCommand{
@@ -156,8 +181,14 @@ func (h *MessageHandler) setupCommands(ctx context.Context, bot *telego.Bot) err
 		}
 	}
 
-	// Use the passed bot instance
-	return bot.SetMyCommands(ctx, &telego.SetMyCommandsParams{
+	// Use the passed bot instance to set the commands
+	err := bot.SetMyCommands(ctx, &telego.SetMyCommandsParams{
 		Commands: commands,
 	})
+	if err != nil {
+		// Wrap the error with context before returning
+		return fmt.Errorf("failed to set bot commands: %w", err)
+	}
+	log.Printf("Successfully set %d bot commands.", len(commands))
+	return nil
 }

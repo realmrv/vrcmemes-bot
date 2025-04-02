@@ -14,22 +14,27 @@ import (
 	"vrcmemes-bot/handlers"
 	"vrcmemes-bot/pkg/locales"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
 )
 
-// Bot represents the Telegram bot
+// Bot represents the main application logic for the Telegram bot.
+// It wraps the telego library, manages the update loop, handles different update types,
+// and orchestrates complex operations like media group processing.
 type Bot struct {
-	bot         *telego.Bot
-	handler     *handlers.MessageHandler
-	updatesChan <-chan telego.Update
-	mediaGroups sync.Map
-	debug       bool
+	bot         *telego.Bot              // The underlying telego bot instance.
+	handler     *handlers.MessageHandler // The message handler containing logic for specific commands and message types.
+	updatesChan <-chan telego.Update     // Channel for receiving updates from Telegram.
+	mediaGroups sync.Map                 // Thread-safe map to temporarily store incoming media group messages. Key: mediaGroupID (string), Value: []telego.Message
+	debug       bool                     // Flag to enable debug logging.
 }
 
-// New creates a new bot instance, accepting a pre-configured telego.Bot and MessageHandler
+// New creates a new Bot instance.
+// It requires a pre-configured telego.Bot instance, a MessageHandler, and a debug flag.
+// Returns the new Bot instance or an error if dependencies are nil.
 func New(bot *telego.Bot, debug bool, handler *handlers.MessageHandler) (*Bot, error) {
-	// No longer creates the telego.Bot instance here
+	// Validate dependencies
 	if bot == nil {
 		return nil, fmt.Errorf("telego bot instance cannot be nil")
 	}
@@ -41,10 +46,13 @@ func New(bot *telego.Bot, debug bool, handler *handlers.MessageHandler) (*Bot, e
 		bot:     bot,
 		handler: handler,
 		debug:   debug,
+		// updatesChan is initialized in Start()
 	}, nil
 }
 
-// storeMessageInGroup stores a message in the media group
+// storeMessageInGroup adds a message to a temporary storage for its media group.
+// It ensures thread-safety using sync.Map and sorts messages by ID.
+// Limits the number of messages per group to prevent memory issues.
 func (b *Bot) storeMessageInGroup(message telego.Message) {
 	if message.MediaGroupID == "" {
 		return
@@ -65,7 +73,9 @@ func (b *Bot) storeMessageInGroup(message telego.Message) {
 	}
 }
 
-// createInputMedia creates input media array from messages
+// createInputMedia converts a slice of telego.Message (belonging to a media group)
+// into a slice of telego.InputMedia suitable for bot.SendMediaGroup.
+// It applies the provided caption to the first photo in the group.
 func (b *Bot) createInputMedia(msgs []telego.Message, caption string) []telego.InputMedia {
 	var inputMedia []telego.InputMedia
 	for i, msg := range msgs {
@@ -84,8 +94,9 @@ func (b *Bot) createInputMedia(msgs []telego.Message, caption string) []telego.I
 	return inputMedia
 }
 
-// parseRetryAfter extracts the retry duration from a "Too Many Requests" error string.
-// Returns the duration in seconds and true if parsing was successful, otherwise 0 and false.
+// parseRetryAfter attempts to extract the 'retry after N' duration (in seconds)
+// from a Telegram API error string (typically for 429 Too Many Requests).
+// Returns the duration and true if successful, otherwise 0 and false.
 func parseRetryAfter(errorString string) (int, bool) {
 	var retryAfter int
 	// Example error: "telego: sendMediaGroup: api: 429 Too Many Requests: retry after 5"
@@ -105,12 +116,27 @@ func parseRetryAfter(errorString string) (int, bool) {
 	return 0, false
 }
 
-// sendMediaGroupWithRetry sends media group to channel with retry on rate limit
+// sendMediaGroupWithRetry attempts to send a media group to the configured channel,
+// handling potential '429 Too Many Requests' errors by retrying after the specified delay.
+// It retries up to maxRetries times.
 func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.InputMedia, maxRetries int) ([]telego.Message, error) {
 	var lastErr error
 	var retryCount int
 	channelID := b.handler.GetChannelID()
 	const defaultRetryWait = 2 * time.Second // Default wait time if parsing fails
+
+	mediaGroupID := "unknown" // Placeholder for logging
+	// Attempt to get a group ID for logging context, if available in the first item
+	/* // Removed unused variable declaration
+	if len(inputMedia) > 0 {
+		if photo, ok := inputMedia[0].(*telego.InputMediaPhoto); ok {
+			// Unfortunately InputMediaPhoto doesn't carry the original group ID.
+			// We rely on the caller (processMediaGroup) to log the group ID.
+		}
+	}
+	*/
+
+	logPrefix := fmt.Sprintf("[sendMediaGroupWithRetry Group:%s]", mediaGroupID)
 
 	for retryCount < maxRetries {
 		sentMessages, err := b.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
@@ -119,8 +145,8 @@ func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.I
 		})
 
 		if err == nil {
-			if b.debug {
-				log.Printf("Successfully sent media group after %d attempts", retryCount+1)
+			if b.debug || retryCount > 0 {
+				log.Printf("%s Successfully sent after %d attempt(s)", logPrefix, retryCount+1)
 			}
 			return sentMessages, nil
 		}
@@ -128,40 +154,50 @@ func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, inputMedia []telego.I
 		lastErr = err
 		errStr := err.Error()
 
-		if strings.Contains(errStr, "Too Many Requests") {
+		if strings.Contains(errStr, "Too Many Requests") || strings.Contains(errStr, "429") {
 			retryAfterSeconds, ok := parseRetryAfter(errStr)
 			waitDuration := defaultRetryWait
 			if ok {
-				log.Printf("Rate limit hit (attempt %d/%d), waiting %d seconds", retryCount+1, maxRetries, retryAfterSeconds)
+				log.Printf("%s Rate limit hit (attempt %d/%d), waiting %d seconds", logPrefix, retryCount+1, maxRetries, retryAfterSeconds)
 				waitDuration = time.Duration(retryAfterSeconds) * time.Second
 			} else {
-				log.Printf("Rate limit hit (attempt %d/%d), couldn't parse retry time, waiting %v", retryCount+1, maxRetries, defaultRetryWait)
+				log.Printf("%s Rate limit hit (attempt %d/%d), couldn't parse retry time, waiting %v. Error: %s", logPrefix, retryCount+1, maxRetries, defaultRetryWait, errStr)
 			}
 
-			// Single select for waiting
 			select {
 			case <-ctx.Done():
-				return nil, fmt.Errorf("context cancelled during rate limit wait: %w", ctx.Err())
+				finalErr := fmt.Errorf("%s context cancelled during rate limit wait (attempt %d/%d): %w", logPrefix, retryCount+1, maxRetries, ctx.Err())
+				sentry.CaptureException(finalErr)
+				return nil, finalErr
 			case <-time.After(waitDuration):
 				retryCount++
 				continue // Continue to the next retry attempt
 			}
 		}
 
-		// If it was not a rate limit error, return immediately
-		return nil, fmt.Errorf("failed to send media group (attempt %d/%d): %w", retryCount+1, maxRetries, err)
+		// If it was not a rate limit error, wrap and return immediately
+		finalErr := fmt.Errorf("%s failed to send media group (attempt %d/%d): %w", logPrefix, retryCount+1, maxRetries, err)
+		sentry.CaptureException(finalErr)
+		return nil, finalErr
 	}
 
 	// If loop finished, max retries were exceeded
-	return nil, fmt.Errorf("max retries (%d) exceeded for sending media group: %w", maxRetries, lastErr)
+	finalErr := fmt.Errorf("%s max retries (%d) exceeded for sending media group: %w", logPrefix, maxRetries, lastErr)
+	sentry.CaptureException(finalErr)
+	return nil, finalErr
 }
 
-// processMediaGroup processes a complete media group and returns a PostLog entry
+// processMediaGroup handles the complete lifecycle of sending a collected media group.
+// It retrieves captions, creates InputMedia, sends the group (with retries),
+// cleans up temporary storage, and generates a PostLog entry on success.
+// Returns the PostLog entry or an error.
 func (b *Bot) processMediaGroup(ctx context.Context, message telego.Message, msgs []telego.Message) (*models.PostLog, error) {
-	log.Printf("[processMediaGroup] Processing: GroupID=%s, Messages count=%d", message.MediaGroupID, len(msgs))
+	groupID := message.MediaGroupID
+	logPrefix := fmt.Sprintf("[processMediaGroup Group:%s]", groupID)
+	log.Printf("%s Processing: Messages count=%d", logPrefix, len(msgs))
 
 	var caption string
-	caption = b.handler.RetrieveMediaGroupCaption(message.MediaGroupID)
+	caption = b.handler.RetrieveMediaGroupCaption(groupID)
 	if caption == "" {
 		if userCaption, ok := b.handler.GetActiveCaption(message.Chat.ID); ok {
 			caption = userCaption
@@ -169,25 +205,27 @@ func (b *Bot) processMediaGroup(ctx context.Context, message telego.Message, msg
 	}
 
 	inputMedia := b.createInputMedia(msgs, caption)
-	log.Printf("[processMediaGroup] Created input media: count=%d for GroupID=%s", len(inputMedia), message.MediaGroupID)
+	log.Printf("%s Created input media: count=%d", logPrefix, len(inputMedia))
 
 	if len(inputMedia) == 0 {
-		b.mediaGroups.Delete(message.MediaGroupID)
-		log.Printf("[processMediaGroup] Removed GroupID=%s from storage (no valid media)", message.MediaGroupID)
+		b.mediaGroups.Delete(groupID)
+		log.Printf("%s Removed group from storage (no valid media)", logPrefix)
 		return nil, nil // Not an error, just nothing to send
 	}
 
 	sentMessages, err := b.sendMediaGroupWithRetry(ctx, inputMedia, 3)
 	if err != nil {
-		log.Printf("[processMediaGroup] Error sending GroupID=%s after retries: %v", message.MediaGroupID, err)
-		b.mediaGroups.Delete(message.MediaGroupID)
-		log.Printf("[processMediaGroup] Removed GroupID=%s from storage (send error)", message.MediaGroupID)
-		return nil, err
+		log.Printf("%s Error sending group after retries: %v", logPrefix, err)
+		// sendMediaGroupWithRetry already sends to Sentry
+		b.mediaGroups.Delete(groupID)
+		log.Printf("%s Removed group from storage (send error)", logPrefix)
+		// Return the error from sendMediaGroupWithRetry
+		return nil, fmt.Errorf("failed during sendMediaGroupWithRetry: %w", err)
 	}
 
-	b.mediaGroups.Delete(message.MediaGroupID)
-	b.handler.DeleteMediaGroupCaption(message.MediaGroupID)
-	log.Printf("[processMediaGroup] Removed GroupID=%s from storage (processed successfully)", message.MediaGroupID)
+	b.mediaGroups.Delete(groupID)
+	b.handler.DeleteMediaGroupCaption(groupID)
+	log.Printf("%s Removed group from storage (processed successfully)", logPrefix)
 
 	publishedTime := time.Now()
 	channelPostID := 0
@@ -204,18 +242,19 @@ func (b *Bot) processMediaGroup(ctx context.Context, message telego.Message, msg
 		PublishedAt:          publishedTime,
 		ChannelID:            b.handler.GetChannelID(),
 		ChannelPostID:        channelPostID,
-		OriginalMediaGroupID: message.MediaGroupID,
+		OriginalMediaGroupID: groupID,
 	}
 
 	if b.debug {
-		log.Printf("[processMediaGroup] Successfully sent GroupID=%s -> Channel Post ID: %d. Log entry created.", message.MediaGroupID, channelPostID)
+		log.Printf("%s Successfully sent -> Channel Post ID: %d. Log entry created.", logPrefix, channelPostID)
 	}
 
 	return logEntry, nil
 }
 
-// handleLoadedMediaGroup contains the core logic for processing a media group
-// after it has been loaded from storage and the delay has passed.
+// handleLoadedMediaGroup is the core logic executed after a delay for a potential media group.
+// It ensures only the goroutine corresponding to the first message processes the group,
+// calls processMediaGroup, logs results, and handles cleanup.
 func (b *Bot) handleLoadedMediaGroup(ctx context.Context, groupID string, msgs []telego.Message, firstMessageID int) {
 	if len(msgs) == 0 {
 		log.Printf("[handleLoadedMediaGroup] Skipping GroupID=%s processing: Group empty.", groupID)
@@ -270,7 +309,9 @@ func (b *Bot) handleLoadedMediaGroup(ctx context.Context, groupID string, msgs [
 	log.Printf("[handleLoadedMediaGroup] Finished processing GroupID=%s", groupID)
 }
 
-// processMediaGroupAfterDelay is a wrapper function for handleLoadedMediaGroup to be used with time.AfterFunc
+// processMediaGroupAfterDelay waits for a short duration before attempting to process a media group.
+// This allows time for subsequent messages in the same group to arrive.
+// It loads the group from storage and calls handleLoadedMediaGroup.
 func (b *Bot) processMediaGroupAfterDelay(groupID string, firstMessageID int) {
 	// We need a new background context for the timer-triggered processing
 	bgCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Add a timeout
@@ -303,8 +344,9 @@ func (b *Bot) processMediaGroupAfterDelay(groupID string, firstMessageID int) {
 	}
 }
 
-// handleMediaGroup receives a message that is part of a media group, stores it,
-// and starts a timer if it's the first message of the group.
+// handleMediaGroup is called when a message belonging to a media group is received.
+// It stores the message and, if it's the first message seen for this group,
+// starts a delayed task (processMediaGroupAfterDelay) to handle the group later.
 func (b *Bot) handleMediaGroup(message telego.Message) {
 	b.storeMessageInGroup(message)
 
@@ -325,140 +367,181 @@ func (b *Bot) handleMediaGroup(message telego.Message) {
 	}
 }
 
-// handleCommandUpdate processes updates recognized as commands.
+// handleCommandUpdate processes a message identified as a command.
 func (b *Bot) handleCommandUpdate(ctx context.Context, message telego.Message) {
-	command := strings.Split(message.Text, " ")[0][1:] // Extract command without leading slash
-	// GetCommandHandler returns only one value
+	command := "unknown"
+	if len(message.Text) > 1 && strings.HasPrefix(message.Text, "/") {
+		command = strings.Split(message.Text, " ")[0][1:] // Extract command without leading slash
+	}
+	logPrefix := fmt.Sprintf("[Cmd:%s User:%d]", command, message.From.ID)
+
 	handlerFunc := b.handler.GetCommandHandler(command)
-	if handlerFunc != nil { // Check if handler exists
-		if err := handlerFunc(ctx, b.bot, message); err != nil {
-			log.Printf("Error executing command '%s': %v", command, err)
-			// Send generic error message only if the handler didn't send one.
-			// This part is tricky; maybe handlers should return a bool indicating if they sent a reply?
-			// For now, let's assume handlers manage their own error reporting.
-			// b.handler.SendError(ctx, b.bot, message.Chat.ID, err) // Avoid double messaging
+	if handlerFunc != nil {
+		if b.debug {
+			log.Printf("%s Executing handler", logPrefix)
+		}
+		err := handlerFunc(ctx, b.bot, message)
+		if err != nil {
+			log.Printf("%s Handler error: %v", logPrefix, err)
+			// Handler might have already sent an error message via sendError
+			// Capture the error in Sentry for visibility
+			sentry.CaptureException(fmt.Errorf("%s handler error: %w", logPrefix, err))
+		} else {
+			if b.debug {
+				log.Printf("%s Handler finished successfully", logPrefix)
+			}
 		}
 	} else {
-		log.Printf("Received unknown command: %s", command)
-		// Optionally send an "unknown command" message
-		// b.handler.SendText(ctx, b.bot, message.Chat.ID, "Unknown command.")
+		log.Printf("%s No handler found", logPrefix)
+		// Send "unknown command" message
+		// TODO: Define locales.MsgErrorUnknownCommand or use a default string
+		unknownCmdMsg := "😕 Sorry, I don't recognize that command." // Default message
+		_, err := b.bot.SendMessage(ctx, tu.Message(tu.ID(message.Chat.ID), unknownCmdMsg))
+		if err != nil {
+			log.Printf("%s Failed to send unknown command message: %v", logPrefix, err)
+		}
 	}
 }
 
-// handleMediaGroupUpdate determines if the message is part of a media group and processes it.
+// handleMediaGroupUpdate is the entry point for handling messages that are part of a media group.
+// It simply calls handleMediaGroup to manage storage and delayed processing.
 func (b *Bot) handleMediaGroupUpdate(message telego.Message) {
 	if message.MediaGroupID != "" {
 		b.handleMediaGroup(message)
 	}
 }
 
-// handlePhotoUpdate handles non-media-group photo updates.
+// handlePhotoUpdate processes an incoming single photo message.
 func (b *Bot) handlePhotoUpdate(ctx context.Context, message telego.Message) {
+	logPrefix := fmt.Sprintf("[Photo User:%d Msg:%d]", message.From.ID, message.MessageID)
 	if message.Photo != nil && message.MediaGroupID == "" {
-		if err := b.handler.HandlePhoto(ctx, b.bot, message); err != nil {
-			log.Printf("Error handling photo message: %v", err)
-			// b.handler.SendError(ctx, b.bot, message.Chat.ID, err)
-		}
-	}
-}
-
-// handleTextUpdate handles non-command text updates.
-func (b *Bot) handleTextUpdate(ctx context.Context, message telego.Message) {
-	if message.Text != "" && !strings.HasPrefix(message.Text, "/") {
-		if err := b.handler.HandleText(ctx, b.bot, message); err != nil {
-			log.Printf("Error handling text message: %v", err)
-			// b.handler.SendError(ctx, b.bot, message.Chat.ID, err)
-		}
-	}
-}
-
-// handleCallbackQuery handles callback queries (e.g., from inline buttons)
-func (b *Bot) handleCallbackQuery(ctx context.Context, query telego.CallbackQuery) {
-	// Example: Log the callback data
-	var messageID int = 0 // Default to 0 if message is inaccessible or not present
-	// Try to type-assert the MaybeInaccessibleMessage to a regular Message
-	if query.Message != nil {
-		if msg, ok := query.Message.(*telego.Message); ok && msg != nil {
-			messageID = msg.MessageID
-		}
-	}
-	log.Printf("[handleCallbackQuery] Received callback: Data=\"%s\", From=%d, MsgID=%d",
-		query.Data, query.From.ID, messageID)
-
-	// Delegate callback handling to the suggestion manager
-	if processed, err := b.handler.ProcessSuggestionCallback(ctx, query); err != nil {
-		log.Printf("[handleCallbackQuery] Error processing suggestion callback: %v", err)
-		// Try to answer the callback query even if there was an error processing it
-		answerErr := b.bot.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
-			CallbackQueryID: query.ID,
-			Text:            locales.MsgErrorGeneral, // Generic error message
-			ShowAlert:       true,                    // Show as an alert popup
-		})
-		if answerErr != nil {
-			log.Printf("[handleCallbackQuery] Error sending error answer to callback query %s: %v", query.ID, answerErr)
-		}
-	} else if processed {
-		// If processed successfully by suggestion manager, it should answer the query.
-		log.Printf("[handleCallbackQuery] Callback query %s processed by suggestion manager.", query.ID)
-	} else {
-		// Callback wasn't related to suggestions (or manager didn't handle it)
-		log.Printf("[handleCallbackQuery] Callback query %s not processed by suggestion manager.", query.ID)
-		// Answer the callback query to remove the loading state on the button
-		answerErr := b.bot.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{
-			CallbackQueryID: query.ID,
-			Text:            "Action not implemented.", // Placeholder
-		})
-		if answerErr != nil {
-			log.Printf("[handleCallbackQuery] Error sending default answer to callback query %s: %v", query.ID, answerErr)
-		}
-	}
-}
-
-// handleUpdateInLoop is the core update processing logic.
-func (b *Bot) handleUpdateInLoop(ctx context.Context, update telego.Update) {
-	// Message updates
-	if update.Message != nil {
-		message := *update.Message
 		if b.debug {
-			log.Printf("-> Receiving Message: ChatID=%d, UserID=%d, Text=\"%s\", Photo=%v, MediaGroupID=%s",
-				message.Chat.ID, message.From.ID, message.Text, message.Photo != nil, message.MediaGroupID)
+			log.Printf("%s Processing single photo", logPrefix)
 		}
-
-		// 1. Check if it should be handled by the suggestion system
-		suggestionProcessed, err := b.handler.ProcessSuggestionMessage(ctx, update)
+		err := b.handler.HandlePhoto(ctx, b.bot, message)
 		if err != nil {
-			log.Printf("[handleUpdateInLoop] Error processing suggestion message for user %d: %v", message.From.ID, err)
-			// Suggestion manager should handle informing the user, just log here.
-			return // Stop processing this update if suggestion handler had an error
+			log.Printf("%s Handler error: %v", logPrefix, err)
+			sentry.CaptureException(fmt.Errorf("%s handler error: %w", logPrefix, err))
 		}
-		if suggestionProcessed {
-			if b.debug {
-				log.Printf("[handleUpdateInLoop] Message processed by suggestion system.")
-			}
-			return // Message was handled by the suggestion system
-		}
-
-		// 2. If not suggestion, process based on type (Command > MediaGroup > Photo > Text)
-		if strings.HasPrefix(message.Text, "/") { // Check for command using string prefix
-			b.handleCommandUpdate(ctx, message)
-		} else if message.MediaGroupID != "" {
-			b.handleMediaGroupUpdate(message) // Media groups are handled slightly differently
-		} else if message.Photo != nil {
-			b.handlePhotoUpdate(ctx, message)
-		} else if message.Text != "" {
-			b.handleTextUpdate(ctx, message)
-		}
-	} else if update.CallbackQuery != nil {
-		// Callback Query updates
-		query := *update.CallbackQuery
-		b.handleCallbackQuery(ctx, query)
-	} else if b.debug {
-		// Log other update types if debugging is enabled
-		log.Printf("-> Receiving Unhandled Update Type: %+v", update)
+	} else {
+		log.Printf("%s Ignoring non-single-photo message in photo handler", logPrefix)
 	}
 }
 
-// Start begins polling for updates and processing them
+// handleTextUpdate processes an incoming text message.
+func (b *Bot) handleTextUpdate(ctx context.Context, message telego.Message) {
+	logPrefix := fmt.Sprintf("[Text User:%d Msg:%d]", message.From.ID, message.MessageID)
+	if message.Text != "" && !strings.HasPrefix(message.Text, "/") {
+		if b.debug {
+			log.Printf("%s Processing text message", logPrefix)
+		}
+
+		// First, check if the suggestion manager should handle this message
+		update := telego.Update{Message: &message}
+		processedBySuggestionManager, suggestionErr := b.handler.ProcessSuggestionMessage(ctx, update)
+		if suggestionErr != nil {
+			log.Printf("%s Suggestion handler error: %v", logPrefix, suggestionErr)
+			// ProcessSuggestionMessage might return a wrapped error, capture it
+			sentry.CaptureException(fmt.Errorf("%s suggestion handler error: %w", logPrefix, suggestionErr))
+			// Decide if we should stop or continue to general handler? Assuming stop.
+			return
+		}
+
+		if processedBySuggestionManager {
+			if b.debug {
+				log.Printf("%s Message handled by suggestion manager", logPrefix)
+			}
+			return // Message was handled, do nothing more
+		}
+
+		// If not handled by suggestion manager, proceed with the general text handler
+		err := b.handler.HandleText(ctx, b.bot, message)
+		if err != nil {
+			log.Printf("%s General text handler error: %v", logPrefix, err)
+			sentry.CaptureException(fmt.Errorf("%s general text handler error: %w", logPrefix, err))
+		}
+	} else {
+		log.Printf("%s Ignoring empty or command message in text handler", logPrefix)
+	}
+}
+
+// handleCallbackQuery processes an incoming callback query.
+func (b *Bot) handleCallbackQuery(ctx context.Context, query telego.CallbackQuery) {
+	logPrefix := fmt.Sprintf("[Callback User:%d QueryID:%s]", query.From.ID, query.ID)
+	if b.debug {
+		log.Printf("%s Received callback query with data: %q", logPrefix, query.Data)
+	}
+
+	// Delegate to suggestion manager first
+	processed, err := b.handler.ProcessSuggestionCallback(ctx, query)
+	if err != nil {
+		log.Printf("%s Suggestion callback handler error: %v", logPrefix, err)
+		sentry.CaptureException(fmt.Errorf("%s suggestion callback handler error: %w", logPrefix, err))
+		// Answer with a generic error? Or assume manager answered?
+		_ = b.bot.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{CallbackQueryID: query.ID, Text: "An error occurred."}) // Use default error text
+		return
+	}
+
+	if processed {
+		if b.debug {
+			log.Printf("%s Callback handled by suggestion manager", logPrefix)
+		}
+		// Suggestion manager should ideally answer the callback query itself.
+		return
+	}
+
+	// If not handled by suggestion manager, handle other callbacks if any
+	log.Printf("%s Callback query not handled (Data: %q)", logPrefix, query.Data)
+	// Answer the callback query to remove the loading state on the button
+	// TODO: Define locales.MsgErrorNotImplemented or use a default string
+	notImplementedMsg := "Action not available." // Default message
+	_ = b.bot.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{CallbackQueryID: query.ID, Text: notImplementedMsg})
+}
+
+// handleUpdateInLoop is the core update processing function called within the main loop.
+func (b *Bot) handleUpdateInLoop(ctx context.Context, update telego.Update) {
+	// Recover from panics in handler logic
+	defer func() {
+		if r := recover(); r != nil {
+			errMsg := fmt.Sprintf("PANIC recovered in handleUpdateInLoop: %v", r)
+			log.Printf("%s\n%s", errMsg, string(debug.Stack()))
+			// Capture panic in Sentry
+			sentry.CaptureException(fmt.Errorf(errMsg))
+			// Optionally send a message to the user/admin if possible?
+		}
+	}()
+
+	// Determine update type and call appropriate handler
+	switch {
+	case update.Message != nil:
+		message := *update.Message
+		switch {
+		case message.Text != "" && strings.HasPrefix(message.Text, "/"):
+			b.handleCommandUpdate(ctx, message)
+		case message.MediaGroupID != "":
+			b.handleMediaGroupUpdate(message) // Needs context?
+		case message.Photo != nil:
+			b.handlePhotoUpdate(ctx, message)
+		case message.Text != "":
+			b.handleTextUpdate(ctx, message)
+		default:
+			if b.debug {
+				log.Printf("Unhandled message type from user %d in chat %d", message.From.ID, message.Chat.ID)
+			}
+		}
+	case update.CallbackQuery != nil:
+		b.handleCallbackQuery(ctx, *update.CallbackQuery)
+	// Add cases for other update types if needed (e.g., EditedMessage, ChannelPost)
+	default:
+		if b.debug {
+			log.Printf("Unhandled update type: %+v", update)
+		}
+	}
+}
+
+// Start begins the bot's operation.
+// It retrieves the updates channel from the telego bot instance
+// and starts the main loop to process incoming updates concurrently.
 func (b *Bot) Start(ctx context.Context) {
 	var err error
 	// Get updates channel
@@ -493,7 +576,8 @@ func (b *Bot) Start(ctx context.Context) {
 	}()
 }
 
-// Stop gracefully stops the bot
+// Stop gracefully shuts down the bot.
+// It stops the underlying telego bot from receiving further updates.
 func (b *Bot) Stop() {
 	log.Println("Stopping bot...")
 	// StopLongPolling is not available in telego v1. Stop is handled by cancelling the context passed to Start.

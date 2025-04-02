@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -13,67 +14,79 @@ import (
 	tu "github.com/mymmrac/telego/telegoutil"
 )
 
-// HandleText handles text messages
+// HandleText handles incoming text messages.
+// If the user is in the process of setting a caption, it captures the text as the caption.
+// Otherwise, if the user is an admin, it forwards the text message to the configured channel.
+// It logs the action and updates user information.
 func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	// Ignore empty messages or the /start command itself (handled by command handler)
 	if message.Text == "" || message.Text == "/start" {
 		return nil
 	}
 
+	// Check if we are waiting for a caption from this user/chat
 	if _, waiting := h.waitingForCaption.Load(message.Chat.ID); waiting {
 		_, hadPreviousCaption := h.GetActiveCaption(message.Chat.ID)
 		h.setActiveCaption(message.Chat.ID, message.Text)
-		h.waitingForCaption.Delete(message.Chat.ID)
+		h.waitingForCaption.Delete(message.Chat.ID) // Done waiting
 
-		// Update user information
-		// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID) // Use updated isUserAdmin
-		isAdmin := true // Assuming placeholder returns true
-		err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "set_caption")
+		// Update user information (Placeholder for isAdmin check)
+		isAdmin := false // Placeholder
+		err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "set_caption_via_text")
 		if err != nil {
-			log.Printf("Failed to update user info: %v", err)
+			log.Printf("Failed to update user info after setting caption for user %d: %v", message.From.ID, err)
+			// Potentially send to Sentry
 		}
 
 		// Log caption setting action
-		err = h.actionLogger.LogUserAction(message.From.ID, "set_caption", map[string]interface{}{
+		err = h.actionLogger.LogUserAction(message.From.ID, "set_caption_via_text", map[string]interface{}{
 			"chat_id":   message.Chat.ID,
 			"caption":   message.Text,
 			"overwrite": hadPreviousCaption,
 		})
 		if err != nil {
-			log.Printf("Failed to log caption action: %v", err)
+			log.Printf("Failed to log caption set action for user %d: %v", message.From.ID, err)
+			// Potentially send to Sentry
 		}
 
+		// Send confirmation message
 		if hadPreviousCaption {
 			return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionOverwriteConfirmation)
 		}
 		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionSetConfirmation)
 	}
 
+	// --- Handling regular text message (forwarding to channel if admin) ---
+
 	// Check admin rights before posting text to channel
 	isAdmin, err := h.isUserAdmin(ctx, bot, message.From.ID)
 	if err != nil {
-		return h.sendError(ctx, bot, message.Chat.ID, err)
+		// Wrap error from isUserAdmin check
+		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to check admin status: %w", err))
 	}
 	if !isAdmin {
+		// If not admin, inform the user and do nothing else
 		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgErrorRequiresAdmin)
 	}
 
-	// Send message to channel using passed bot instance
+	// User is admin, proceed to send the message to the channel
 	sentMsg, err := bot.SendMessage(ctx, tu.Message(
 		tu.ID(h.channelID),
 		message.Text,
 	).WithParseMode(telego.ModeHTML),
 	)
 	if err != nil {
-		return h.sendError(ctx, bot, message.Chat.ID, err)
+		// Wrap error from SendMessage
+		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to send text message to channel %d: %w", h.channelID, err))
 	}
 
 	publishedTime := time.Now()
 
-	// Create log entry for the text message
-	logEntry := models.PostLog{ // Use models.PostLog
+	// Create log entry for the text message post
+	logEntry := models.PostLog{
 		SenderID:       message.From.ID,
 		SenderUsername: message.From.Username,
-		Caption:        message.Text,
+		Caption:        message.Text, // For text messages, caption is the text itself
 		MessageType:    "text",
 		ReceivedAt:     time.Unix(int64(message.Date), 0),
 		PublishedAt:    publishedTime,
@@ -81,59 +94,73 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 		ChannelPostID:  sentMsg.MessageID,
 	}
 
-	// Log to MongoDB using postLogger
+	// Log the post to the database
 	if err := h.postLogger.LogPublishedPost(logEntry); err != nil {
-		log.Printf("Failed attempt to log text post to DB from user %d", message.From.ID)
+		// LogPublishedPost already logs internally, just add user ID context here
+		log.Printf("Failed attempt to log text post to DB from user %d. Error: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
-	// Update user information using userRepo
-	err = h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "send_text")
+	// Update user information
+	err = h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "send_text_to_channel")
 	if err != nil {
-		log.Printf("Failed to update user info: %v", err)
+		log.Printf("Failed to update user info after sending text for user %d: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
-	// Log text message sending action using actionLogger
-	err = h.actionLogger.LogUserAction(message.From.ID, "send_text", map[string]interface{}{
-		"chat_id": message.Chat.ID,
-		"text":    message.Text,
+	// Log text message sending action
+	err = h.actionLogger.LogUserAction(message.From.ID, "send_text_to_channel", map[string]interface{}{
+		"chat_id":            message.Chat.ID,
+		"text":               message.Text,
+		"channel_message_id": sentMsg.MessageID,
 	})
 	if err != nil {
-		log.Printf("Failed to log text message action: %v", err)
+		log.Printf("Failed to log send_text_to_channel action for user %d: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgPostSentToChannel)
 }
 
-// HandlePhoto handles photo messages
+// HandlePhoto handles incoming photo messages.
+// If the user is an admin, it copies the photo message to the configured channel, applying the active caption if set.
+// It logs the action and updates user information.
 func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	// Ignore messages that are not photos (e.g., text messages with photo URLs)
 	if message.Photo == nil {
-		return nil
+		log.Printf("HandlePhoto called with non-photo message (ID: %d) from user %d", message.MessageID, message.From.ID)
+		return nil // Or handle as an error? For now, just ignore.
 	}
 
+	// Check admin rights before posting photo to channel
 	isAdmin, err := h.isUserAdmin(ctx, bot, message.From.ID)
 	if err != nil {
-		return h.sendError(ctx, bot, message.Chat.ID, err)
+		// Wrap error from isUserAdmin check
+		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to check admin status: %w", err))
 	}
 	if !isAdmin {
 		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgErrorRequiresAdmin)
 	}
 
-	caption, _ := h.GetActiveCaption(message.Chat.ID)
-	// Copy message using passed bot instance
+	// Get the currently active caption for this user/chat (if any)
+	caption, _ := h.GetActiveCaption(message.Chat.ID) // Assuming GetActiveCaption returns empty string if none
+
+	// Copy the photo message to the target channel
 	sentMsgID, err := bot.CopyMessage(ctx, &telego.CopyMessageParams{
 		ChatID:     tu.ID(h.channelID),
 		FromChatID: tu.ID(message.Chat.ID),
 		MessageID:  message.MessageID,
-		Caption:    caption,
+		Caption:    caption, // Apply the active caption
 	})
 	if err != nil {
-		return h.sendError(ctx, bot, message.Chat.ID, err)
+		// Wrap error from CopyMessage
+		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to copy photo message %d to channel %d: %w", message.MessageID, h.channelID, err))
 	}
 
 	publishedTime := time.Now()
 
-	// Create log entry for the photo
-	logEntry := models.PostLog{ // Use models.PostLog
+	// Create log entry for the photo post
+	logEntry := models.PostLog{
 		SenderID:       message.From.ID,
 		SenderUsername: message.From.Username,
 		Caption:        caption,
@@ -141,52 +168,63 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 		ReceivedAt:     time.Unix(int64(message.Date), 0),
 		PublishedAt:    publishedTime,
 		ChannelID:      h.channelID,
-		ChannelPostID:  sentMsgID.MessageID,
+		// Use the MessageID from the result of CopyMessage which is the ID in the destination channel
+		ChannelPostID: sentMsgID.MessageID,
 	}
 
-	// Log to MongoDB using postLogger
+	// Log the post to the database
 	if err := h.postLogger.LogPublishedPost(logEntry); err != nil {
-		log.Printf("Failed attempt to log photo post to DB from user %d", message.From.ID)
+		log.Printf("Failed attempt to log photo post to DB from user %d. Error: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
-	// Update user information using userRepo
-	err = h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "send_photo")
+	// Update user information
+	err = h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "send_photo_to_channel")
 	if err != nil {
-		log.Printf("Failed to update user info: %v", err)
+		log.Printf("Failed to update user info after sending photo for user %d: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
-	// Log photo sending action using actionLogger
-	err = h.actionLogger.LogUserAction(message.From.ID, "send_photo", map[string]interface{}{
-		"chat_id":    message.Chat.ID,
-		"message_id": message.MessageID,
-		"caption":    caption,
+	// Log photo sending action
+	err = h.actionLogger.LogUserAction(message.From.ID, "send_photo_to_channel", map[string]interface{}{
+		"chat_id":             message.Chat.ID,
+		"original_message_id": message.MessageID,
+		"channel_message_id":  sentMsgID.MessageID,
+		"caption_used":        caption,
 	})
 	if err != nil {
-		log.Printf("Failed to log photo action: %v", err)
+		log.Printf("Failed to log send_photo_to_channel action for user %d: %v", message.From.ID, err)
+		// Potentially send to Sentry
 	}
 
-	if caption != "" {
-		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgPostSentToChannel)
-	}
+	// Send confirmation back to the user
+	// The message text is the same whether a caption was used or not, based on previous code.
 	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgPostSentToChannel)
 }
 
-// ProcessSuggestionMessage checks if the message should be handled by the suggestion manager.
-// It calls the manager's HandleMessage method.
-// Returns true if the message was processed by the suggestion manager, false otherwise.
+// ProcessSuggestionMessage checks if the message is part of the suggestion workflow
+// and delegates handling to the suggestion manager if appropriate.
+// It returns true if the message was handled by the suggestion manager, false otherwise.
 func (h *MessageHandler) ProcessSuggestionMessage(ctx context.Context, update telego.Update) (bool, error) {
 	if h.suggestionManager == nil {
-		// Should not happen if initialized correctly, but good practice to check
+		// This indicates a setup issue if the manager is expected
+		log.Println("WARN: ProcessSuggestionMessage called but suggestionManager is nil")
 		return false, nil
 	}
-	// Delegate to the suggestion manager's handler
-	return h.suggestionManager.HandleMessage(ctx, update)
+	// Delegate to the suggestion manager's message handler
+	processed, err := h.suggestionManager.HandleMessage(ctx, update)
+	if err != nil {
+		// Log errors from the suggestion manager's handling
+		log.Printf("Error from suggestionManager.HandleMessage: %v", err)
+		// Return the error so the main loop can potentially handle it (e.g., Sentry)
+		return processed, fmt.Errorf("suggestion manager failed to handle message: %w", err)
+	}
+	return processed, nil
 }
 
-// HandleMediaGroup handles media group messages (This might be deprecated if bot.go handles it)
-// If kept, it needs signature update and logic adjustment
-/* // Commenting out for now as bot.go handles media group assembly
+// HandleMediaGroup is commented out as media group logic is likely handled in bot.go
+/*
 func (h *MessageHandler) HandleMediaGroup(ctx context.Context, bot *telego.Bot, message telego.Message) error {
-	// ... (update logic similarly to HandlePhoto/HandleText) ...
+	// ... (Potential future implementation or removal) ...
 }
 */

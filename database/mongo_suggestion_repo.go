@@ -74,6 +74,7 @@ func (r *MongoSuggestionRepository) GetPendingSuggestions(ctx context.Context, l
 }
 
 // GetSuggestionByID retrieves a single suggestion by its MongoDB ObjectID.
+// It returns ErrSuggestionNotFound if no suggestion matches the ID.
 func (r *MongoSuggestionRepository) GetSuggestionByID(ctx context.Context, id primitive.ObjectID) (*models.Suggestion, error) {
 	var suggestion models.Suggestion
 	filter := bson.M{"_id": id}
@@ -81,7 +82,8 @@ func (r *MongoSuggestionRepository) GetSuggestionByID(ctx context.Context, id pr
 	err := r.collection.FindOne(ctx, filter).Decode(&suggestion)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil, nil // Not found is not necessarily an error here
+			// Return the specific error defined in the package
+			return nil, ErrSuggestionNotFound
 		}
 		return nil, fmt.Errorf("failed to find suggestion by ID %s: %w", id.Hex(), err)
 	}
