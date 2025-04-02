@@ -5,3 +5,10 @@
 tmp
 vrcmemes-bot
 .idea
+
+docker-compose.override.yml
+
+# Air live reload
+.air.toml
+tmp/
+air_build.log

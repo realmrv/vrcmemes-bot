@@ -9,107 +9,116 @@ Telegram bot for posting VRChat memes to a channel.
 - Error tracking with Sentry
 - Environment-based configuration
 - MongoDB integration for user tracking
-- Docker support
+- Docker support (Development & Production environments)
 - Hot-reload development mode with Air
 
 ## Requirements
 
 - Go 1.24 or higher
+- Docker & Docker Compose
 - Telegram Bot Token
 - Sentry DSN (for error tracking)
-- MongoDB instance (optional, included in Docker setup)
 - Key dependencies:
   - `github.com/mymmrac/telego v1.0.2`
   - `github.com/getsentry/sentry-go v0.31.1`
   - `go.mongodb.org/mongo-driver v1.17.3`
 
-## Installation
+## Installation & Running with Docker (Recommended)
 
-### Using Docker (Recommended)
-
-1. Clone the repository:
+1. **Clone the repository:**
 
     ```bash
     git clone https://github.com/yourusername/vrcmemes-bot.git
     cd vrcmemes-bot
     ```
 
-2. Copy the example environment file and configure it:
+2. **Copy the example environment file and configure it:**
 
     ```bash
     cp .env.example .env
     ```
 
-3. Edit `.env` file with your configuration:
+3. **Edit `.env` file with your configuration:**
+    - Set `TELEGRAM_BOT_TOKEN`, `CHANNEL_ID`, `SENTRY_DSN`.
+    - Adjust `MONGO_INITDB_ROOT_USERNAME` and `MONGO_INITDB_ROOT_PASSWORD` if needed (defaults are 'admin'/'password').
+    - Other variables like `APP_ENV`, `DEBUG`, `VERSION` can be configured as needed.
+    - **Note:** The `MONGODB_URI` is automatically configured for Docker Compose. For manual runs, you'll need to set it appropriately.
 
     ```env
+    # Example .env
     APP_ENV=development    # development, staging, or production
     DEBUG=true            # Enable debug mode
     VERSION=dev          # Application version
-    USE_AIR=true         # Enable hot-reload in development mode
 
     TELEGRAM_BOT_TOKEN=your-bot-token
     CHANNEL_ID=your-channel-id
     SENTRY_DSN=your-sentry-dsn-here
-    MONGODB_URI=mongodb://admin:password@mongodb:27017
+
+    # MongoDB Credentials (used by docker-compose.yml)
+    MONGO_INITDB_ROOT_USERNAME=admin
+    MONGO_INITDB_ROOT_PASSWORD=password
+
+    # MongoDB Connection (usually set for non-docker runs or specific overrides)
+    # MONGODB_URI=mongodb://admin:password@localhost:27017
     MONGODB_DATABASE=vrcmemes
     ```
 
-4. Start the bot using Docker Compose:
+4. **Run in Development Mode (with Hot-Reload):**
+    This uses `docker-compose.yml` and `docker-compose.override.yml` to run the `builder` stage with `air` and mounts your local code.
 
     ```bash
-    docker compose up -d
+    docker compose up --build
     ```
 
-### Manual Installation
+    *(Add `-d` to run in the background)*
 
-1. Clone the repository:
+5. **Run in Production Mode:**
+    This uses *only* `docker-compose.yml` to run the final, optimized stage. It builds the production image and does not mount local code.
 
     ```bash
-    git clone https://github.com/yourusername/vrcmemes-bot.git
-    cd vrcmemes-bot
+    docker compose -f docker-compose.yml up --build -d
     ```
 
-2. Install dependencies:
+6. **Stopping the Application:**
 
     ```bash
-    go mod download
+    # If started with 'docker compose up' (dev mode)
+    docker compose down
+
+    # If started with 'docker compose -f docker-compose.yml up' (prod mode)
+    docker compose -f docker-compose.yml down
     ```
 
-3. Copy the example environment file and configure it:
+## Manual Installation & Running (Not Recommended for Production)
+
+1. Clone, install dependencies (`go mod download`), and configure `.env` as described above. Ensure `MONGODB_URI` points to your accessible MongoDB instance.
+2. Run the application directly:
 
     ```bash
-    cp .env.example .env
+    go run main.go
     ```
 
-4. Edit `.env` file with your configuration:
+3. For hot-reload during manual development:
 
-    ```env
-    APP_ENV=development    # development, staging, or production
-    DEBUG=true            # Enable debug mode
-    VERSION=dev          # Application version
-    USE_AIR=false        # Disable hot-reload in production
-
-    TELEGRAM_BOT_TOKEN=your-bot-token
-    CHANNEL_ID=your-channel-id
-    SENTRY_DSN=your-sentry-dsn-here
-    MONGODB_URI=your-mongodb-uri
-    MONGODB_DATABASE=your-database-name
+    ```bash
+    # Make sure air is installed (go install github.com/air-verse/air@latest)
+    air
     ```
 
 ## Environment Variables
 
-| Variable | Description | Required | Default |
-|----------|-------------|----------|---------|
-| `APP_ENV` | Application environment (development/staging/production) | No | development |
-| `DEBUG` | Enable debug mode | No | false |
-| `VERSION` | Application version | Yes | - |
-| `USE_AIR` | Enable hot-reload with Air in development mode | No | false |
-| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | Yes | - |
-| `CHANNEL_ID` | Telegram channel ID where memes will be posted | Yes | - |
-| `SENTRY_DSN` | Sentry DSN for error tracking | Yes | - |
-| `MONGODB_URI` | MongoDB connection URI | Yes | - |
-| `MONGODB_DATABASE` | MongoDB database name | Yes | - |
+| Variable | Description | Required | Default | Notes |
+|----------|-------------|----------|---------|-------|
+| `APP_ENV` | Application environment (development/staging/production) | No | `development` | |
+| `DEBUG` | Enable debug mode | No | `false` | |
+| `VERSION` | Application version | Yes | - | Set this to track releases |
+| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | Yes | - | |
+| `CHANNEL_ID` | Telegram channel ID where memes will be posted | Yes | - | |
+| `SENTRY_DSN` | Sentry DSN for error tracking | Yes | - | |
+| `MONGO_INITDB_ROOT_USERNAME` | MongoDB root username for initialization | No | `admin` | Used by `docker-compose.yml` |
+| `MONGO_INITDB_ROOT_PASSWORD` | MongoDB root password for initialization | No | `password` | Used by `docker-compose.yml` |
+| `MONGODB_URI` | MongoDB connection URI | Yes (for manual run) | - | Automatically configured in Docker |
+| `MONGODB_DATABASE` | MongoDB database name | Yes | - | e.g., `vrcmemes` |
 
 ## Project Structure
 
@@ -121,9 +130,11 @@ Telegram bot for posting VRChat memes to a channel.
 ├── handlers/     # Telegram message and callback handlers
 ├── .air.toml     # Air configuration for hot-reload
 ├── .env.example  # Example environment variables
-├── Dockerfile    # Docker build instructions
+├── .gitignore    # Git ignore rules
+├── Dockerfile    # Docker build instructions (multi-stage)
 ├── README.md     # This file
-├── docker-compose.yml # Docker Compose setup
+├── docker-compose.yml # Docker Compose setup (Production base)
+├── docker-compose.override.yml # Docker Compose overrides (Development)
 ├── go.mod        # Go module dependencies
 ├── go.sum        # Go module checksums
 └── main.go       # Application entry point
@@ -131,75 +142,26 @@ Telegram bot for posting VRChat memes to a channel.
 
 ## Development
 
-### Using Docker
+See the **Installation & Running with Docker** section for running in development mode using Docker Compose, which is the recommended approach.
 
-To run the bot in **development mode** with hot-reload (requires `USE_AIR=true` in `.env`):
-
-```bash
-docker compose up
-```
-
-To run the bot in **production mode** (requires `USE_AIR=false` in `.env`):
-
-```bash
-docker compose up
-```
-
-*Note: The `command` in `docker-compose.yml` automatically chooses between `air` and the compiled binary based on the `USE_AIR` variable.*
-
-To stop the bot:
-
-```bash
-docker compose down
-```
-
-### Manual Development
-
-To run the bot in development mode:
-
-```bash
-go run main.go
-```
-
-For hot-reload during development, you can use [Air](https://github.com/air-verse/air):
-
-```bash
-air
-```
+Manual development using `go run` or `air` is possible but requires manual setup of dependencies like MongoDB.
 
 ## Error Tracking
 
-The bot uses Sentry for error tracking. Make sure to:
-
-1. Create a Sentry account at <https://sentry.io>
-2. Create a new project
-3. Get your DSN from the project settings
-4. Add the DSN to your `.env` file
+The bot uses Sentry for error tracking. Ensure `SENTRY_DSN` is set in your `.env` file.
 
 ## Database
 
-The bot uses MongoDB to store:
+The bot uses MongoDB. The Docker Compose setup includes a MongoDB service. Database credentials (`MONGO_INITDB_ROOT_USERNAME`, `MONGO_INITDB_ROOT_PASSWORD`) and the database name (`MONGODB_DATABASE`) are configured via `.env`.
 
-- User information and activity
-- Action logs
-- Caption history
+## Docker Details
 
-Make sure to:
-
-1. Have a MongoDB instance running
-2. Configure the connection URI in your `.env` file
-3. Create a database for the bot
-
-## Docker
-
-The project includes Docker support with the following features:
-
-- Multi-stage build for smaller final image
-- Automatic MongoDB setup via Docker Compose
-- Volume persistence for database data
-- Environment variable configuration via `.env` file
-- Automatic container restart (`unless-stopped`)
-- Hot-reload support in development mode using Air (controlled by `USE_AIR`)
+- **Multi-stage Build:** `Dockerfile` uses a builder stage for dependencies/compilation and a minimal final stage for the production image.
+- **Platform Aware:** The build automatically detects the target architecture (`amd64`, `arm64`).
+- **Development Environment:** `docker compose up` uses `docker-compose.override.yml` to run the `builder` stage, mounts local code, and uses `air` for hot-reloading.
+- **Production Environment:** `docker compose -f docker-compose.yml up` uses only the base configuration, builds the final lean image, and runs the compiled binary.
+- **MongoDB Service:** Included in Docker Compose for convenience.
+- **Configuration:** Environment variables are loaded from the `.env` file.
 
 ## License
 

@@ -1,30 +1,26 @@
-version: '3.8'
-
 services:
   bot:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: vrcmemes-bot
+      target: final
+    container_name: vrcmemes-bot-prod
     env_file:
       - .env
     depends_on:
       - mongodb
     restart: unless-stopped
-    volumes:
-      - .:/app
-    command: sh -c "if [ "$$USE_AIR" = "true" ]; then air; else ./vrcmemes-bot; fi"
 
   mongodb:
     image: mongo:latest
     container_name: vrcmemes-mongodb
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=password
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-password}
     volumes:
       - mongodb_data:/data/db
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     restart: unless-stopped
 
 volumes:

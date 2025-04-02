@@ -1,0 +1,19 @@
+services:
+  bot:
+    build:
+      # Target the builder stage which includes Go and air
+      target: builder 
+    container_name: vrcmemes-bot-dev # Separate name for dev container
+    volumes:
+      # Mount local code into the container for live reload
+      - .:/app
+    command: air -c .air.toml # Command to run air for live reloading
+    # You might want to expose a port here if your app listens on one during development
+    # ports:
+    #   - "8080:8080"
+
+  # MongoDB configuration is inherited from docker-compose.yml
+  # We can override ports if needed for dev, e.g. different host port
+  # mongodb:
+  #   ports:
+  #     - "27018:27017" 
