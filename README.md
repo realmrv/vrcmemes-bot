@@ -18,6 +18,10 @@ Telegram bot for posting VRChat memes to a channel.
 - Telegram Bot Token
 - Sentry DSN (for error tracking)
 - MongoDB instance (optional, included in Docker setup)
+- Key dependencies:
+  - `github.com/mymmrac/telego v1.0.2`
+  - `github.com/getsentry/sentry-go v0.31.1`
+  - `go.mongodb.org/mongo-driver v1.17.3`
 
 ## Installation
 
@@ -107,23 +111,41 @@ Telegram bot for posting VRChat memes to a channel.
 | `MONGODB_URI` | MongoDB connection URI | Yes | - |
 | `MONGODB_DATABASE` | MongoDB database name | Yes | - |
 
+## Project Structure
+
+```
+.
+├── bot/          # Core bot logic, Telegram API interaction
+├── config/       # Configuration loading (.env)
+├── database/     # MongoDB interaction (connection, models, operations)
+├── handlers/     # Telegram message and callback handlers
+├── .air.toml     # Air configuration for hot-reload
+├── .env.example  # Example environment variables
+├── Dockerfile    # Docker build instructions
+├── README.md     # This file
+├── docker-compose.yml # Docker Compose setup
+├── go.mod        # Go module dependencies
+├── go.sum        # Go module checksums
+└── main.go       # Application entry point
+```
+
 ## Development
 
 ### Using Docker
 
-To run the bot in development mode with hot-reload:
+To run the bot in **development mode** with hot-reload (requires `USE_AIR=true` in `.env`):
 
 ```bash
-# Set USE_AIR=true in .env file
 docker compose up
 ```
 
-To run the bot in production mode:
+To run the bot in **production mode** (requires `USE_AIR=false` in `.env`):
 
 ```bash
-# Set USE_AIR=false in .env file
 docker compose up
 ```
+
+*Note: The `command` in `docker-compose.yml` automatically chooses between `air` and the compiled binary based on the `USE_AIR` variable.*
 
 To stop the bot:
 
@@ -149,7 +171,7 @@ air
 
 The bot uses Sentry for error tracking. Make sure to:
 
-1. Create a Sentry account at https://sentry.io
+1. Create a Sentry account at <https://sentry.io>
 2. Create a new project
 3. Get your DSN from the project settings
 4. Add the DSN to your `.env` file
@@ -173,11 +195,11 @@ Make sure to:
 The project includes Docker support with the following features:
 
 - Multi-stage build for smaller final image
-- Automatic MongoDB setup
+- Automatic MongoDB setup via Docker Compose
 - Volume persistence for database data
-- Environment variable configuration
-- Automatic container restart
-- Hot-reload support in development mode
+- Environment variable configuration via `.env` file
+- Automatic container restart (`unless-stopped`)
+- Hot-reload support in development mode using Air (controlled by `USE_AIR`)
 
 ## License
 
