@@ -8,12 +8,14 @@ import (
 	"syscall"
 	"time"
 
-	"vrcmemes-bot/bot"
+	telegoBot "vrcmemes-bot/bot"
 	"vrcmemes-bot/config"
 	"vrcmemes-bot/database"
 	"vrcmemes-bot/handlers"
+	"vrcmemes-bot/internal/suggestions"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/mymmrac/telego"
 )
 
 func main() {
@@ -59,25 +61,44 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Create message handler with dependencies
-	messageHandler := handlers.NewMessageHandler(cfg.ChannelID, dbLogger, dbLogger, dbLogger)
+	// --- Bot Initialization ---
+	// 1. Create the raw telego bot instance first
+	var bot *telego.Bot
+	if cfg.Debug {
+		bot, err = telego.NewBot(cfg.BotToken, telego.WithDefaultDebugLogger())
+	} else {
+		bot, err = telego.NewBot(cfg.BotToken, telego.WithDefaultLogger(false, false))
+	}
+	if err != nil {
+		sentry.CaptureException(err)
+		log.Fatalf("Failed to create telego bot: %v", err)
+	}
 
-	// Creating bot instance
-	b, err := bot.New(cfg.BotToken, cfg.Debug, messageHandler)
+	// 2. Create the suggestion repository
+	suggestionRepo := database.NewMongoSuggestionRepository(db)
+
+	// 3. Create the suggestion manager
+	suggestionMgr := suggestions.NewManager(bot, cfg.ChannelID, suggestionRepo)
+
+	// 4. Create message handler with dependencies
+	messageHandler := handlers.NewMessageHandler(cfg.ChannelID, dbLogger, dbLogger, dbLogger, suggestionMgr)
+
+	// 5. Create the bot wrapper
+	appBot, err := telegoBot.New(bot, cfg.Debug, messageHandler)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatal(err)
 	}
 
-	// Start the bot in a separate goroutine
-	go b.Start(ctx)
+	// Start the bot wrapper's processing loop in a separate goroutine
+	go appBot.Start(ctx)
 
 	// Wait for context cancellation (e.g., SIGINT, SIGTERM)
 	<-ctx.Done()
 
 	log.Println("Shutting down bot...")
-	// Stop the bot gracefully
-	b.Stop()
+	// Stop the bot wrapper gracefully
+	appBot.Stop()
 
 	log.Println("Bot shutdown complete.")
 }

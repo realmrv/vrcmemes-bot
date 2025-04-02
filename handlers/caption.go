@@ -6,22 +6,24 @@ import (
 	"log"
 
 	"github.com/mymmrac/telego"
+
+	"vrcmemes-bot/pkg/locales" // Import locales package
 	// th "github.com/mymmrac/telego/telegohandler" // No longer needed
 )
 
 // HandleCaption handles the /caption command
 func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	h.waitingForCaption.Store(message.Chat.ID, true)
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msgCaptionPrompt)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionAskForInput)
 }
 
 // HandleShowCaption handles the /showcaption command
 func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	caption, exists := h.GetActiveCaption(message.Chat.ID)
 	if !exists {
-		return h.sendSuccess(ctx, bot, message.Chat.ID, msgShowCaptionInactive)
+		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionShowEmpty)
 	}
-	return h.sendSuccess(ctx, bot, message.Chat.ID, fmt.Sprintf(msgShowCaptionActive, caption))
+	return h.sendSuccess(ctx, bot, message.Chat.ID, fmt.Sprintf(locales.MsgCaptionShowCurrent, caption))
 }
 
 // HandleClearCaption handles the /clearcaption command
@@ -36,7 +38,7 @@ func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot *telego.Bot
 		log.Printf("Failed to log clear caption command: %v", err)
 	}
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msgCaptionCleared)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionClearedConfirmation)
 }
 
 // GetActiveCaption returns the active caption for a chat

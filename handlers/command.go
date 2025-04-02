@@ -10,6 +10,8 @@ import (
 
 	"github.com/mymmrac/telego"
 	// th "github.com/mymmrac/telego/telegohandler" // th is no longer needed
+	// Assuming config.Version is needed
+	"vrcmemes-bot/pkg/locales" // Import locales package
 )
 
 // HandleStart handles the /start command
@@ -34,7 +36,7 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, messa
 		log.Printf("Failed to log start command: %v", err)
 	}
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msgStart)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgStart)
 }
 
 // HandleHelp handles the /help command
@@ -43,7 +45,7 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 	for _, cmd := range h.commands {
 		helpText += fmt.Sprintf("/%s - %s\n", cmd.Command, cmd.Description)
 	}
-	helpText += msgHelpFooter
+	helpText += locales.MsgHelpFooter
 
 	// Update user information
 	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID)
@@ -67,7 +69,7 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 // HandleStatus handles the /status command
 func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	caption, _ := h.GetActiveCaption(message.Chat.ID)
-	statusText := fmt.Sprintf(msgStatus, h.channelID, caption)
+	statusText := fmt.Sprintf(locales.MsgStatus, h.channelID, caption)
 
 	// Update user information
 	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID)
@@ -95,7 +97,7 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 	if version == "" {
 		version = "dev"
 	}
-	versionText := fmt.Sprintf(msgVersion, version)
+	versionText := fmt.Sprintf(locales.MsgVersion, version)
 
 	// Update user information
 	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID)
@@ -115,6 +117,33 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, versionText)
+}
+
+// HandleCaption handles the /caption command
+// ... existing code ...
+
+// HandleShowCaption handles the /showcaption command
+// ... existing code ...
+
+// HandleClearCaption handles the /clearcaption command
+// ... existing code ...
+
+// HandleSuggest handles the /suggest command by calling the suggestion manager.
+func (h *MessageHandler) HandleSuggest(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	// We need the full Update object for the manager's handler
+	// Construct a minimal Update containing the Message
+	update := telego.Update{Message: &message}
+
+	// Pass context and the constructed update to the manager
+	err := h.suggestionManager.HandleSuggestCommand(ctx, update)
+	if err != nil {
+		// The manager handles sending messages to the user on errors like not subscribed.
+		// We just log the error here if one occurs during the process.
+		log.Printf("[HandleSuggest] Error from suggestionManager.HandleSuggestCommand for user %d: %v", message.From.ID, err)
+		// Optionally, send a generic error message if the manager didn't?
+		// For now, assume manager handles user feedback on errors.
+	}
+	return nil // Return nil to prevent generic error message from bot loop
 }
 
 // setupCommands registers bot commands

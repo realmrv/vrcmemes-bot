@@ -2,10 +2,14 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"log"
 	"sync"
 
 	"vrcmemes-bot/database"
 	"vrcmemes-bot/database/models"
+	"vrcmemes-bot/internal/suggestions"
+	"vrcmemes-bot/pkg/locales"
 
 	"github.com/mymmrac/telego"
 )
@@ -27,19 +31,27 @@ type MessageHandler struct {
 	// Map to store captions for media groups
 	mediaGroupCaptions sync.Map
 	// Available commands
-	commands     []Command
-	postLogger   database.PostLogger
-	actionLogger database.UserActionLogger
-	userRepo     database.UserRepository
+	commands          []Command
+	postLogger        database.PostLogger
+	actionLogger      database.UserActionLogger
+	userRepo          database.UserRepository
+	suggestionManager *suggestions.Manager
 }
 
 // NewMessageHandler creates a new message handler
-func NewMessageHandler(channelID int64, postLogger database.PostLogger, actionLogger database.UserActionLogger, userRepo database.UserRepository) *MessageHandler {
+func NewMessageHandler(
+	channelID int64,
+	postLogger database.PostLogger,
+	actionLogger database.UserActionLogger,
+	userRepo database.UserRepository,
+	suggestionManager *suggestions.Manager,
+) *MessageHandler {
 	h := &MessageHandler{
-		channelID:    channelID,
-		postLogger:   postLogger,
-		actionLogger: actionLogger,
-		userRepo:     userRepo,
+		channelID:         channelID,
+		postLogger:        postLogger,
+		actionLogger:      actionLogger,
+		userRepo:          userRepo,
+		suggestionManager: suggestionManager,
 	}
 	// Initialize commands using method values directly
 	h.commands = []Command{
@@ -50,6 +62,8 @@ func NewMessageHandler(channelID int64, postLogger database.PostLogger, actionLo
 		{Command: "caption", Description: cmdCaptionDesc, Handler: h.HandleCaption},
 		{Command: "showcaption", Description: cmdShowCaptionDesc, Handler: h.HandleShowCaption},
 		{Command: "clearcaption", Description: cmdClearCaptionDesc, Handler: h.HandleClearCaption},
+		{Command: "suggest", Description: cmdSuggestDesc, Handler: h.HandleSuggest},
+		{Command: "review", Description: CmdReviewDesc, Handler: h.HandleReview},
 	}
 	return h
 }
@@ -89,6 +103,33 @@ func (h *MessageHandler) RetrieveMediaGroupCaption(groupID string) string {
 // DeleteMediaGroupCaption removes a stored caption for a media group.
 func (h *MessageHandler) DeleteMediaGroupCaption(groupID string) {
 	h.mediaGroupCaptions.Delete(groupID)
+}
+
+// HandleReview handles the /review command (placeholder)
+func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	// TODO: Implement review command logic by calling suggestionManager
+	update := telego.Update{Message: &message} // Construct update for manager
+	if h.suggestionManager != nil {
+		return h.suggestionManager.HandleReviewCommand(ctx, update)
+	} else {
+		log.Println("Error: Suggestion manager not initialized in MessageHandler")
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(locales.MsgErrorGeneral))
+	}
+}
+
+// UserRepo returns the user repository instance.
+func (h *MessageHandler) UserRepo() database.UserRepository {
+	return h.userRepo
+}
+
+// ProcessSuggestionCallback delegates callback query handling to the suggestion manager.
+// Returns true if the callback was processed, false otherwise.
+func (h *MessageHandler) ProcessSuggestionCallback(ctx context.Context, query telego.CallbackQuery) (bool, error) {
+	if h.suggestionManager != nil {
+		return h.suggestionManager.HandleCallbackQuery(ctx, query)
+	}
+	log.Println("Warning: ProcessSuggestionCallback called but suggestion manager is nil")
+	return false, nil // Not processed
 }
 
 /* // Removed duplicate PostLog definition

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"vrcmemes-bot/database/models"
+	"vrcmemes-bot/pkg/locales"
 
 	"github.com/mymmrac/telego"
 	// th "github.com/mymmrac/telego/telegohandler" // No longer needed
@@ -42,9 +43,9 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 		}
 
 		if hadPreviousCaption {
-			return h.sendSuccess(ctx, bot, message.Chat.ID, msgCaptionOverwrite)
+			return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionOverwriteConfirmation)
 		}
-		return h.sendSuccess(ctx, bot, message.Chat.ID, msgCaptionSet)
+		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgCaptionSetConfirmation)
 	}
 
 	// Check admin rights before posting text to channel
@@ -53,7 +54,7 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 		return h.sendError(ctx, bot, message.Chat.ID, err)
 	}
 	if !isAdmin {
-		return h.sendSuccess(ctx, bot, message.Chat.ID, msgErrorUserNotAdmin)
+		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgErrorRequiresAdmin)
 	}
 
 	// Send message to channel using passed bot instance
@@ -100,7 +101,7 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 		log.Printf("Failed to log text message action: %v", err)
 	}
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msgPostSent)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgPostSentToChannel)
 }
 
 // HandlePhoto handles photo messages
@@ -114,7 +115,7 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 		return h.sendError(ctx, bot, message.Chat.ID, err)
 	}
 	if !isAdmin {
-		return h.sendSuccess(ctx, bot, message.Chat.ID, msgErrorUserNotAdmin)
+		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgErrorRequiresAdmin)
 	}
 
 	caption, _ := h.GetActiveCaption(message.Chat.ID)
@@ -165,9 +166,21 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 	}
 
 	if caption != "" {
-		return h.sendSuccess(ctx, bot, message.Chat.ID, msgPostSent)
+		return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgPostSentToChannel)
 	}
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msgPostSent)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, locales.MsgPostSentToChannel)
+}
+
+// ProcessSuggestionMessage checks if the message should be handled by the suggestion manager.
+// It calls the manager's HandleMessage method.
+// Returns true if the message was processed by the suggestion manager, false otherwise.
+func (h *MessageHandler) ProcessSuggestionMessage(ctx context.Context, update telego.Update) (bool, error) {
+	if h.suggestionManager == nil {
+		// Should not happen if initialized correctly, but good practice to check
+		return false, nil
+	}
+	// Delegate to the suggestion manager's handler
+	return h.suggestionManager.HandleMessage(ctx, update)
 }
 
 // HandleMediaGroup handles media group messages (This might be deprecated if bot.go handles it)
