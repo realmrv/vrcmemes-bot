@@ -81,4 +81,5 @@ alwaysApply: true
 - Use the latest available versions of the program dependencies.
 - Do not change the `go.sum` file.
 - Use the database if necessary
+- Ignore the files and paths specified in the .gitignore files, except for the .env file
 
