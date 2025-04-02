@@ -2,100 +2,79 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 
 	"github.com/joho/godotenv"
 )
 
-// Config holds all configuration parameters
+// Config holds the application configuration.
 type Config struct {
-	BotToken    string
-	ChannelID   int64
-	Debug       bool
-	Version     string
-	SentryDSN   string
-	AppEnv      string
-	MongoDBURI  string
-	MongoDBName string
+	AppEnv          string
+	Debug           bool
+	Version         string
+	BotToken        string
+	ChannelID       int64
+	SentryDSN       string
+	MongoDBURI      string
+	MongoDBDatabase string
 }
 
 // LoadConfig loads configuration from environment variables.
 // It attempts to load a .env file if present but prioritizes
 // actual environment variables set in the system (e.g., by Docker).
 func LoadConfig() (*Config, error) {
-	// Attempt to load .env file. Ignore error if the file doesn't exist.
-	err := godotenv.Load()
-	if err != nil && !os.IsNotExist(err) { // Use os.IsNotExist for standard check
-		// Return error only if it's something other than the file not existing
-		return nil, fmt.Errorf("error loading .env file: %w", err)
+	// Load .env file if it exists (useful for development)
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, relying on environment variables")
 	}
 
-	// Getting debug mode from environment variables
-	debug := os.Getenv("DEBUG") == "true"
+	debug, _ := strconv.ParseBool(getEnv("DEBUG", "false"))
 
-	// Getting bot token from environment variables
-	token := os.Getenv("TELEGRAM_BOT_TOKEN")
-	if token == "" {
-		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN is not set")
-	}
-
-	// Getting channel ID from environment variables
-	channelIDStr := os.Getenv("CHANNEL_ID")
-	if channelIDStr == "" {
-		return nil, fmt.Errorf("CHANNEL_ID is not set")
-	}
-
-	// Converting string to int64 for ChatID
+	channelIDStr := getEnv("CHANNEL_ID", "")
 	channelID, err := strconv.ParseInt(channelIDStr, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid CHANNEL_ID format: %w", err)
+	if err != nil && channelIDStr != "" {
+		return nil, fmt.Errorf("invalid CHANNEL_ID: %w", err)
+	} else if channelIDStr == "" {
+		log.Println("Warning: CHANNEL_ID is not set") // Warning instead of error?
 	}
 
-	// Getting version from environment variables
-	version := os.Getenv("VERSION")
-	if version == "" {
-		version = "dev"
+	cfg := &Config{
+		AppEnv:          getEnv("APP_ENV", "development"),
+		Debug:           debug,
+		Version:         getEnv("VERSION", "dev"),
+		BotToken:        getEnv("TELEGRAM_BOT_TOKEN", ""),
+		ChannelID:       channelID,
+		SentryDSN:       getEnv("SENTRY_DSN", ""),
+		MongoDBURI:      getEnv("MONGODB_URI", ""), // URI might be complex, handle validation carefully if needed
+		MongoDBDatabase: getEnv("MONGODB_DATABASE", ""),
 	}
 
-	// Getting sentry DSN from environment variables
-	sentryDSN := os.Getenv("SENTRY_DSN")
-	if sentryDSN == "" {
-		return nil, fmt.Errorf("SENTRY_DSN is not set")
+	// Basic validation for essential variables
+	if cfg.BotToken == "" {
+		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
+	}
+	if cfg.ChannelID == 0 {
+		return nil, fmt.Errorf("CHANNEL_ID is required")
+	}
+	if cfg.SentryDSN == "" {
+		log.Println("Warning: SENTRY_DSN is not set. Error tracking disabled.")
+	}
+	if cfg.MongoDBURI == "" {
+		return nil, fmt.Errorf("MONGODB_URI is required")
+	}
+	if cfg.MongoDBDatabase == "" {
+		return nil, fmt.Errorf("MONGODB_DATABASE is required")
 	}
 
-	// Getting app environment from environment variables
-	appEnv := os.Getenv("APP_ENV")
-	if appEnv == "" {
-		appEnv = "development" // Default to development if not set
-	}
+	return cfg, nil
+}
 
-	// Getting MongoDB URI from environment variables
-	mongoDBURI := os.Getenv("MONGODB_URI")
-	if mongoDBURI == "" {
-		// In Docker, this might be intentionally empty if we construct it differently later
-		// For now, we require it, but this check might need adjustment based on setup.
-		// If running outside Docker, it *must* be set.
-		if os.Getenv("IS_DOCKER") != "true" { // Example check
-			return nil, fmt.Errorf("MONGODB_URI is not set")
-		}
-		// If in Docker, allow it to be empty here, assuming it's constructed or provided elsewhere.
+// getEnv retrieves an environment variable or returns a default value.
+func getEnv(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
 	}
-
-	// Getting MongoDB database name from environment variables
-	mongoDBName := os.Getenv("MONGODB_DATABASE")
-	if mongoDBName == "" {
-		return nil, fmt.Errorf("MONGODB_DATABASE is not set")
-	}
-
-	return &Config{
-		BotToken:    token,
-		ChannelID:   channelID,
-		Debug:       debug,
-		Version:     version,
-		SentryDSN:   sentryDSN,
-		AppEnv:      appEnv,
-		MongoDBURI:  mongoDBURI,
-		MongoDBName: mongoDBName,
-	}, nil
+	return defaultValue
 }

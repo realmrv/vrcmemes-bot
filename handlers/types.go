@@ -121,6 +121,33 @@ func (h *MessageHandler) DeleteMediaGroupCaption(groupID string) {
 
 // HandleReview handles the /review command by delegating to the suggestion manager.
 func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	userID := message.From.ID
+
+	// --- Admin Check ---
+	isAdmin := false
+	if h.suggestionManager != nil {
+		var checkErr error
+		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
+		if checkErr != nil {
+			log.Printf("Error checking admin status for user %d in HandleReview: %v. Assuming non-admin.", userID, checkErr)
+			isAdmin = false
+		}
+	} else {
+		log.Printf("Warning: Suggestion manager is nil in HandleReview, cannot check admin status for user %d", userID)
+	}
+
+	if !isAdmin {
+		log.Printf("User %d (not admin) attempted to use /review.", userID)
+		lang := locales.DefaultLanguage
+		if message.From != nil && message.From.LanguageCode != "" {
+			// lang = message.From.LanguageCode
+		}
+		localizer := locales.NewLocalizer(lang)
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
+	}
+	// --- End Admin Check ---
+
 	update := telego.Update{Message: &message} // Construct update for manager
 	if h.suggestionManager != nil {
 		return h.suggestionManager.HandleReviewCommand(ctx, update)
@@ -156,6 +183,11 @@ func (h *MessageHandler) ProcessSuggestionCallback(ctx context.Context, query te
 	}
 	log.Println("Warning: ProcessSuggestionCallback called but suggestion manager is nil")
 	return false, nil // Not processed
+}
+
+// SuggestionManager provides access to the suggestion manager dependency.
+func (h *MessageHandler) SuggestionManager() *suggestions.Manager {
+	return h.suggestionManager
 }
 
 /* // Removed duplicate PostLog definition

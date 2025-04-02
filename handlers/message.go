@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -14,128 +15,127 @@ import (
 	tu "github.com/mymmrac/telego/telegoutil"
 )
 
-// HandleText handles incoming text messages.
-// If the user is in the process of setting a caption, it captures the text as the caption.
-// Otherwise, if the user is an admin, it forwards the text message to the configured channel.
-// It logs the action and updates user information.
+// HandleText handles incoming text messages (excluding commands).
+// It checks if the user is an admin and then processes the text for publishing or setting as caption.
 func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, message telego.Message) error {
-	// Ignore empty messages or the /start command itself (handled by command handler)
-	if message.Text == "" || message.Text == "/start" {
-		return nil
+	userID := message.From.ID
+	chatID := message.Chat.ID
+
+	// Check if we are waiting for a caption from this chat
+	if _, waiting := h.waitingForCaption.Load(chatID); waiting {
+		captionText := message.Text
+		log.Printf("Received caption text \"%s\" from user %d (Chat %d)", captionText, userID, chatID)
+
+		// Store the caption
+		_, exists := h.activeCaptions.Load(chatID)
+		h.activeCaptions.Store(chatID, captionText)
+		h.waitingForCaption.Delete(chatID) // Clear the waiting state
+
+		// Send confirmation
+		lang := locales.DefaultLanguage
+		if message.From != nil && message.From.LanguageCode != "" {
+			// lang = message.From.LanguageCode
+		}
+		localizer := locales.NewLocalizer(lang)
+		var confirmationMsg string
+		if exists {
+			confirmationMsg = locales.GetMessage(localizer, "MsgCaptionOverwriteConfirmation", nil, nil)
+		} else {
+			confirmationMsg = locales.GetMessage(localizer, "MsgCaptionSetConfirmation", nil, nil)
+		}
+
+		// Log action
+		err := h.actionLogger.LogUserAction(userID, "set_caption_reply", map[string]interface{}{
+			"chat_id": chatID,
+			"caption": captionText,
+		})
+		if err != nil {
+			log.Printf("Failed to log set_caption_reply action for user %d: %v", userID, err)
+		}
+		return h.sendSuccess(ctx, bot, chatID, confirmationMsg)
 	}
 
-	// Create localizer (default to Russian)
+	// If not waiting for caption, proceed with admin check and potential direct posting
+	// --- Admin Check ---
+	isAdmin := false
+	if h.suggestionManager != nil {
+		var checkErr error
+		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
+		if checkErr != nil {
+			log.Printf("Error checking admin status for user %d in HandleText: %v. Assuming non-admin.", userID, checkErr)
+			isAdmin = false
+		}
+	} else {
+		log.Printf("Warning: Suggestion manager is nil in HandleText, cannot check admin status for user %d", userID)
+	}
+
+	if !isAdmin {
+		log.Printf("User %d (not admin) attempted to send text directly.", userID)
+		// Non-admins cannot send text directly for publishing
+		// Should we send an error? Or just ignore? Sending error for now.
+		lang := locales.DefaultLanguage
+		if message.From != nil && message.From.LanguageCode != "" {
+			// lang = message.From.LanguageCode
+		}
+		localizer := locales.NewLocalizer(lang)
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		return h.sendError(ctx, bot, chatID, errors.New(msg))
+	}
+	// --- End Admin Check ---
+
+	// Admin is sending text directly for publishing
+	log.Printf("Admin %d sending text message to channel %d", userID, h.channelID)
+	textToPublish := message.Text
+
+	// TODO: Consider if admins should be able to set caption with simple text? Unlikely.
+
+	sentMsg, err := bot.SendMessage(ctx, tu.Message(tu.ID(h.channelID), textToPublish))
+	if err != nil {
+		return h.sendError(ctx, bot, chatID, fmt.Errorf("failed to send text message to channel %d: %w", h.channelID, err))
+	}
+
+	// Log the successful post
+	log.Printf("Admin %d successfully sent text message %d to channel %d", userID, sentMsg.MessageID, h.channelID)
+
+	// Create log entry for the text message post
+	logEntry := models.PostLog{
+		SenderID:       userID,
+		SenderUsername: message.From.Username,
+		Caption:        message.Text, // For text messages, caption is the text itself
+		MessageType:    "text",
+		ReceivedAt:     time.Unix(int64(message.Date), 0),
+		PublishedAt:    time.Unix(int64(sentMsg.Date), 0),
+		ChannelID:      h.channelID,
+		ChannelPostID:  sentMsg.MessageID,
+	}
+	if err := h.postLogger.LogPublishedPost(logEntry); err != nil {
+		log.Printf("Failed attempt to log text post to DB from user %d. Error: %v", userID, err)
+	}
+
+	// Update user information
+	err = h.userRepo.UpdateUser(ctx, userID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "send_text_to_channel")
+	if err != nil {
+		log.Printf("Failed to update user info after sending text for user %d: %v", userID, err)
+	}
+
+	// Log text message sending action
+	err = h.actionLogger.LogUserAction(userID, "send_text_to_channel", map[string]interface{}{
+		"chat_id":            chatID,
+		"text":               message.Text,
+		"channel_message_id": sentMsg.MessageID,
+	})
+	if err != nil {
+		log.Printf("Failed to log send_text_to_channel action for user %d: %v", userID, err)
+	}
+
+	// Send confirmation using localized message
 	lang := locales.DefaultLanguage
 	if message.From != nil && message.From.LanguageCode != "" {
 		// lang = message.From.LanguageCode
 	}
 	localizer := locales.NewLocalizer(lang)
-
-	// Check if we are waiting for a caption from this user/chat
-	if _, waiting := h.waitingForCaption.Load(message.Chat.ID); waiting {
-		_, hadPreviousCaption := h.GetActiveCaption(message.Chat.ID)
-		h.setActiveCaption(message.Chat.ID, message.Text)
-		h.waitingForCaption.Delete(message.Chat.ID) // Done waiting
-
-		// Update user information (Placeholder for isAdmin check)
-		isAdmin := false // Placeholder
-		err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "set_caption_via_text")
-		if err != nil {
-			log.Printf("Failed to update user info after setting caption for user %d: %v", message.From.ID, err)
-			// Potentially send to Sentry
-		}
-
-		// Log caption setting action
-		err = h.actionLogger.LogUserAction(message.From.ID, "set_caption_via_text", map[string]interface{}{
-			"chat_id":   message.Chat.ID,
-			"caption":   message.Text,
-			"overwrite": hadPreviousCaption,
-		})
-		if err != nil {
-			log.Printf("Failed to log caption set action for user %d: %v", message.From.ID, err)
-			// Potentially send to Sentry
-		}
-
-		// Send confirmation message using localized strings
-		var confirmationMsgID string
-		if hadPreviousCaption {
-			confirmationMsgID = "MsgCaptionOverwriteConfirmation"
-		} else {
-			confirmationMsgID = "MsgCaptionSetConfirmation"
-		}
-		msg := locales.GetMessage(localizer, confirmationMsgID, nil, nil)
-		return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
-	}
-
-	// --- Handling regular text message (forwarding to channel if admin) ---
-
-	// Check admin rights before posting text to channel
-	isAdmin, err := h.isUserAdmin(ctx, bot, message.From.ID)
-	if err != nil {
-		// Use localized error message?
-		wrappedErr := fmt.Errorf("failed to check admin status: %w", err)
-		// errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil) // Example
-		return h.sendError(ctx, bot, message.Chat.ID, wrappedErr) // Keep original error for now
-	}
-	if !isAdmin {
-		// Inform the user using localized message
-		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
-		return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
-	}
-
-	// User is admin, proceed to send the message to the channel
-	sentMsg, err := bot.SendMessage(ctx, tu.Message(
-		tu.ID(h.channelID),
-		message.Text,
-	).WithParseMode(telego.ModeHTML),
-	)
-	if err != nil {
-		// Wrap error from SendMessage
-		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to send text message to channel %d: %w", h.channelID, err))
-	}
-
-	publishedTime := time.Now()
-
-	// Create log entry for the text message post
-	logEntry := models.PostLog{
-		SenderID:       message.From.ID,
-		SenderUsername: message.From.Username,
-		Caption:        message.Text, // For text messages, caption is the text itself
-		MessageType:    "text",
-		ReceivedAt:     time.Unix(int64(message.Date), 0),
-		PublishedAt:    publishedTime,
-		ChannelID:      h.channelID,
-		ChannelPostID:  sentMsg.MessageID,
-	}
-
-	// Log the post to the database
-	if err := h.postLogger.LogPublishedPost(logEntry); err != nil {
-		// LogPublishedPost already logs internally, just add user ID context here
-		log.Printf("Failed attempt to log text post to DB from user %d. Error: %v", message.From.ID, err)
-		// Potentially send to Sentry
-	}
-
-	// Update user information
-	err = h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "send_text_to_channel")
-	if err != nil {
-		log.Printf("Failed to update user info after sending text for user %d: %v", message.From.ID, err)
-		// Potentially send to Sentry
-	}
-
-	// Log text message sending action
-	err = h.actionLogger.LogUserAction(message.From.ID, "send_text_to_channel", map[string]interface{}{
-		"chat_id":            message.Chat.ID,
-		"text":               message.Text,
-		"channel_message_id": sentMsg.MessageID,
-	})
-	if err != nil {
-		log.Printf("Failed to log send_text_to_channel action for user %d: %v", message.From.ID, err)
-		// Potentially send to Sentry
-	}
-
-	// Send confirmation using localized message
 	msg := locales.GetMessage(localizer, "MsgPostSentToChannel", nil, nil)
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
+	return h.sendSuccess(ctx, bot, chatID, msg)
 }
 
 // HandlePhoto handles incoming photo messages.
@@ -156,14 +156,22 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 	localizer := locales.NewLocalizer(lang)
 
 	// Check admin rights before posting photo to channel
-	isAdmin, err := h.isUserAdmin(ctx, bot, message.From.ID)
-	if err != nil {
-		wrappedErr := fmt.Errorf("failed to check admin status: %w", err)
-		return h.sendError(ctx, bot, message.Chat.ID, wrappedErr) // Keep original error
+	userID := message.From.ID
+	isAdmin := false
+	if h.suggestionManager != nil {
+		var checkErr error
+		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
+		if checkErr != nil {
+			log.Printf("Error checking admin status for user %d in HandlePhoto: %v. Assuming non-admin.", userID, checkErr)
+			isAdmin = false
+		}
+	} else {
+		log.Printf("Warning: Suggestion manager is nil in HandlePhoto, cannot check admin status for user %d", userID)
 	}
 	if !isAdmin {
+		log.Printf("User %d (not admin) attempted to send photo directly.", userID)
 		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
-		return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
 	}
 
 	// Get the currently active caption for this user/chat (if any)
@@ -185,7 +193,7 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 
 	// Create log entry for the photo post
 	logEntry := models.PostLog{
-		SenderID:       message.From.ID,
+		SenderID:       userID,
 		SenderUsername: message.From.Username,
 		Caption:        caption,
 		MessageType:    "photo",
@@ -198,26 +206,26 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 
 	// Log the post to the database
 	if err := h.postLogger.LogPublishedPost(logEntry); err != nil {
-		log.Printf("Failed attempt to log photo post to DB from user %d. Error: %v", message.From.ID, err)
+		log.Printf("Failed attempt to log photo post to DB from user %d. Error: %v", userID, err)
 		// Potentially send to Sentry
 	}
 
 	// Update user information
-	err = h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "send_photo_to_channel")
+	err = h.userRepo.UpdateUser(ctx, userID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "send_photo_to_channel")
 	if err != nil {
-		log.Printf("Failed to update user info after sending photo for user %d: %v", message.From.ID, err)
+		log.Printf("Failed to update user info after sending photo for user %d: %v", userID, err)
 		// Potentially send to Sentry
 	}
 
 	// Log photo sending action
-	err = h.actionLogger.LogUserAction(message.From.ID, "send_photo_to_channel", map[string]interface{}{
+	err = h.actionLogger.LogUserAction(userID, "send_photo_to_channel", map[string]interface{}{
 		"chat_id":             message.Chat.ID,
 		"original_message_id": message.MessageID,
 		"channel_message_id":  sentMsgID.MessageID,
 		"caption_used":        caption,
 	})
 	if err != nil {
-		log.Printf("Failed to log send_photo_to_channel action for user %d: %v", message.From.ID, err)
+		log.Printf("Failed to log send_photo_to_channel action for user %d: %v", userID, err)
 		// Potentially send to Sentry
 	}
 

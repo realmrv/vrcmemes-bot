@@ -2,104 +2,183 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"log"
-
-	"github.com/mymmrac/telego"
+	"strings"
 
 	"vrcmemes-bot/pkg/locales" // Import locales package
+
+	"github.com/mymmrac/telego"
 	// th "github.com/mymmrac/telego/telegohandler" // No longer needed
 )
 
 // HandleCaption handles the /caption command.
-// It sets a flag indicating the bot is waiting for the user's next text message to be used as the active caption,
-// and sends a message asking the user for the caption text.
+// It allows admins to set or update the active caption.
+// If no text is provided after the command, it asks the user for input
+// and waits for the next text message.
 func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
-	// Set the state to wait for the next text message from this chat as caption
-	h.waitingForCaption.Store(message.Chat.ID, true)
-
-	// Log the initiation of the caption setting process
-	err := h.actionLogger.LogUserAction(message.From.ID, "command_caption_start", map[string]interface{}{
-		"chat_id": message.Chat.ID,
-	})
-	if err != nil {
-		log.Printf("Failed to log /caption command start for user %d: %v", message.From.ID, err)
-		// Potentially send to Sentry
+	userID := message.From.ID
+	chatID := message.Chat.ID
+	// --- Admin Check ---
+	isAdmin := false
+	if h.suggestionManager != nil {
+		var checkErr error
+		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
+		if checkErr != nil {
+			log.Printf("Error checking admin status for user %d in HandleCaption: %v. Assuming non-admin.", userID, checkErr)
+			isAdmin = false
+		}
+	} else {
+		log.Printf("Warning: Suggestion manager is nil in HandleCaption, cannot check admin status for user %d", userID)
 	}
+	if !isAdmin {
+		log.Printf("User %d (not admin) attempted to use /caption.", userID)
+		lang := locales.DefaultLanguage
+		localizer := locales.NewLocalizer(lang)
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
+	}
+	// --- End Admin Check ---
 
-	// Create localizer (default to Russian)
+	chatText := message.Text
+	args := strings.SplitN(chatText, " ", 2)
+
 	lang := locales.DefaultLanguage
 	if message.From != nil && message.From.LanguageCode != "" {
-		// lang = message.From.LanguageCode
+		// lang = message.From.LanguageCode // Keep default for now
 	}
 	localizer := locales.NewLocalizer(lang)
 
-	// Ask the user to provide the caption text using localized message
-	msg := locales.GetMessage(localizer, "MsgCaptionAskForInput", nil, nil)
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
+	if len(args) == 1 {
+		// No caption provided with the command, ask for it
+		h.waitingForCaption.Store(chatID, true) // Set state to wait for next message
+		log.Printf("User %d (Chat %d) initiated /caption, waiting for text.", userID, chatID)
+		msg := locales.GetMessage(localizer, "MsgCaptionAskForInput", nil, nil)
+		return h.sendSuccess(ctx, bot, chatID, msg)
+	}
+
+	// Caption text provided with the command
+	caption := args[1]
+	_, exists := h.activeCaptions.Load(chatID)
+	h.activeCaptions.Store(chatID, caption)
+	h.waitingForCaption.Delete(chatID) // Ensure waiting state is cleared if caption was provided directly
+
+	var confirmationMsg string
+	if exists {
+		confirmationMsg = locales.GetMessage(localizer, "MsgCaptionOverwriteConfirmation", nil, nil)
+	} else {
+		confirmationMsg = locales.GetMessage(localizer, "MsgCaptionSetConfirmation", nil, nil)
+	}
+
+	// Log action
+	err := h.actionLogger.LogUserAction(userID, "set_caption", map[string]interface{}{
+		"chat_id": chatID,
+		"caption": caption,
+	})
+	if err != nil {
+		log.Printf("Failed to log set_caption action for user %d: %v", userID, err)
+	}
+
+	return h.sendSuccess(ctx, bot, chatID, confirmationMsg)
 }
 
 // HandleShowCaption handles the /showcaption command.
-// It retrieves the currently active caption for the chat and sends it to the user.
-// If no caption is set, it informs the user.
+// It allows admins to see the currently active caption.
 func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
-	caption, exists := h.GetActiveCaption(message.Chat.ID)
+	userID := message.From.ID
+	// --- Admin Check ---
+	isAdmin := false
+	if h.suggestionManager != nil {
+		var checkErr error
+		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
+		if checkErr != nil {
+			log.Printf("Error checking admin status for user %d in HandleShowCaption: %v. Assuming non-admin.", userID, checkErr)
+			isAdmin = false
+		}
+	} else {
+		log.Printf("Warning: Suggestion manager is nil in HandleShowCaption, cannot check admin status for user %d", userID)
+	}
+	if !isAdmin {
+		log.Printf("User %d (not admin) attempted to use /showcaption.", userID)
+		lang := locales.DefaultLanguage
+		localizer := locales.NewLocalizer(lang)
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
+	}
+	// --- End Admin Check ---
 
-	// Create localizer (default to Russian)
+	chatID := message.Chat.ID
+	captionText, exists := h.GetActiveCaption(chatID)
+
 	lang := locales.DefaultLanguage
 	if message.From != nil && message.From.LanguageCode != "" {
-		// lang = message.From.LanguageCode
+		// lang = message.From.LanguageCode // Keep default for now
 	}
 	localizer := locales.NewLocalizer(lang)
 
-	// Log the action of showing the caption
-	err := h.actionLogger.LogUserAction(message.From.ID, "command_showcaption", map[string]interface{}{
-		"chat_id":        message.Chat.ID,
-		"caption_exists": exists,
-		"caption":        caption, // Log the caption if it exists
-	})
-	if err != nil {
-		log.Printf("Failed to log /showcaption command for user %d: %v", message.From.ID, err)
-		// Potentially send to Sentry
+	var msg string
+	if exists {
+		msg = locales.GetMessage(localizer, "MsgCaptionShowCurrent", map[string]interface{}{"Caption": captionText}, nil)
+	} else {
+		msg = locales.GetMessage(localizer, "MsgCaptionShowEmpty", nil, nil)
 	}
 
-	var msg string
-	if !exists {
-		msg = locales.GetMessage(localizer, "MsgCaptionShowEmpty", nil, nil)
-	} else {
-		msg = locales.GetMessage(localizer, "MsgCaptionShowCurrent", map[string]interface{}{
-			"Caption": caption,
-		}, nil)
+	// Log action
+	err := h.actionLogger.LogUserAction(userID, "show_caption", map[string]interface{}{
+		"chat_id":        chatID,
+		"caption_exists": exists,
+	})
+	if err != nil {
+		log.Printf("Failed to log show_caption action for user %d: %v", userID, err)
 	}
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
+
+	return h.sendSuccess(ctx, bot, chatID, msg)
 }
 
 // HandleClearCaption handles the /clearcaption command.
-// It removes the active caption associated with the chat and confirms the action to the user.
+// It allows admins to clear the active caption.
 func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
-	// Retrieve caption before clearing for logging purposes
-	_, existed := h.GetActiveCaption(message.Chat.ID)
-
-	h.clearActiveCaption(message.Chat.ID)
-
-	// Log clear caption action
-	err := h.actionLogger.LogUserAction(message.From.ID, "command_clearcaption", map[string]interface{}{
-		"chat_id":         message.Chat.ID,
-		"caption_existed": existed,
-	})
-	if err != nil {
-		log.Printf("Failed to log /clearcaption command for user %d: %v", message.From.ID, err)
-		// Potentially send to Sentry
+	userID := message.From.ID
+	// --- Admin Check ---
+	isAdmin := false
+	if h.suggestionManager != nil {
+		var checkErr error
+		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
+		if checkErr != nil {
+			log.Printf("Error checking admin status for user %d in HandleClearCaption: %v. Assuming non-admin.", userID, checkErr)
+			isAdmin = false
+		}
+	} else {
+		log.Printf("Warning: Suggestion manager is nil in HandleClearCaption, cannot check admin status for user %d", userID)
 	}
+	if !isAdmin {
+		log.Printf("User %d (not admin) attempted to use /clearcaption.", userID)
+		lang := locales.DefaultLanguage
+		localizer := locales.NewLocalizer(lang)
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
+	}
+	// --- End Admin Check ---
 
-	// Create localizer (default to Russian)
+	chatID := message.Chat.ID
+	h.activeCaptions.Delete(chatID)
+
 	lang := locales.DefaultLanguage
 	if message.From != nil && message.From.LanguageCode != "" {
-		// lang = message.From.LanguageCode
+		// lang = message.From.LanguageCode // Keep default for now
 	}
 	localizer := locales.NewLocalizer(lang)
-
 	msg := locales.GetMessage(localizer, "MsgCaptionClearedConfirmation", nil, nil)
-	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
+
+	// Log action
+	err := h.actionLogger.LogUserAction(userID, "clear_caption", map[string]interface{}{
+		"chat_id": chatID,
+	})
+	if err != nil {
+		log.Printf("Failed to log clear_caption action for user %d: %v", userID, err)
+	}
+
+	return h.sendSuccess(ctx, bot, chatID, msg)
 }
 
 // GetActiveCaption retrieves the currently active caption for a specific chat ID.
@@ -122,24 +201,9 @@ func (h *MessageHandler) GetActiveCaption(chatID int64) (string, bool) {
 	return capStr, true
 }
 
-// setActiveCaption stores the provided caption string as the active caption for the given chat ID.
-// It uses a sync.Map for thread-safe storage.
-func (h *MessageHandler) setActiveCaption(chatID int64, caption string) {
-	if caption == "" {
-		// Setting an empty caption is equivalent to clearing it
-		h.clearActiveCaption(chatID)
-		return
-	}
-	h.activeCaptions.Store(chatID, caption)
-	log.Printf("Active caption set for chat %d", chatID) // Log setting action
-}
+// setActiveCaption is unused because caption setting now happens directly via h.activeCaptions.Store
 
-// clearActiveCaption removes the active caption associated with the given chat ID.
-// It uses a sync.Map for thread-safe deletion.
-func (h *MessageHandler) clearActiveCaption(chatID int64) {
-	h.activeCaptions.Delete(chatID)
-	log.Printf("Active caption cleared for chat %d", chatID) // Log clearing action
-}
+// clearActiveCaption is unused because caption clearing now happens directly via h.activeCaptions.Delete
 
 // StoreMediaGroupCaption stores a caption associated with a specific media group ID.
 // This is likely used to apply captions to media groups received shortly after text messages.

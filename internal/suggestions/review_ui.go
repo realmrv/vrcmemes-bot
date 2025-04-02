@@ -10,6 +10,7 @@ import (
 
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
+	"github.com/nicksnyder/go-i18n/v2/i18n"
 )
 
 // SendReviewMessage sends a message to the admin with the suggestion details and action buttons.
@@ -36,31 +37,8 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	lang := locales.DefaultLanguage
 	localizer := locales.NewLocalizer(lang)
 
-	indexText := locales.GetMessage(localizer, "MsgReviewCurrentSuggestionIndex", map[string]interface{}{
-		"Index": suggestionIndex + 1,
-		"Total": totalSuggestionsInBatch,
-	}, nil)
-
-	submitterUsername := suggestion.Username
-	if submitterUsername == "" {
-		submitterUsername = "(no username)"
-	} else {
-		submitterUsername = escapeMarkdownV2(submitterUsername)
-	}
-	submitterFirstName := escapeMarkdownV2(suggestion.FirstName)
-	submitterInfo := locales.GetMessage(localizer, "MsgReviewFrom", map[string]interface{}{
-		"FirstName": submitterFirstName,
-		"Username":  submitterUsername,
-		"UserID":    suggestion.SuggesterID,
-	}, nil)
-	captionDisplay := "(No Caption)"
-	if suggestion.Caption != "" {
-		captionDisplay = suggestion.Caption
-	}
-	captionText := locales.GetMessage(localizer, "MsgReviewCaption", map[string]interface{}{
-		"Caption": fmt.Sprintf("`%s`", escapeMarkdownV2(captionDisplay)),
-	}, nil)
-	messageText := fmt.Sprintf("%s\n%s\n%s", indexText, submitterInfo, captionText)
+	// Build the message text using the dedicated helper function
+	messageText := m.buildReviewMessageText(localizer, &suggestion, suggestionIndex, totalSuggestionsInBatch)
 
 	inputMedia := m.createInputMediaFromSuggestion(suggestion)
 	if len(inputMedia) == 0 {
@@ -196,4 +174,42 @@ func (m *Manager) createInputMediaFromSuggestion(suggestion models.Suggestion) [
 		inputMedia = append(inputMedia, mediaPhoto)
 	}
 	return inputMedia
+}
+
+// buildReviewMessageText formats the text for the review message.
+func (m *Manager) buildReviewMessageText(localizer *i18n.Localizer, suggestion *models.Suggestion, index, total int) string {
+	indexText := locales.GetMessage(localizer, "MsgReviewCurrentSuggestionIndex", map[string]interface{}{
+		"Index": index + 1, // User-friendly 1-based index
+		"Total": total,
+	}, nil)
+
+	// Prepare username display
+	var usernameDisplay string
+	if suggestion.Username != "" {
+		// Don't escape the @, but escape the username itself if it contains special chars?
+		// For now, assume usernames are safe or handle specific cases if needed.
+		usernameDisplay = "@" + suggestion.Username
+	} else {
+		usernameDisplay = locales.GetMessage(localizer, "MsgReviewNoUsernamePlaceholder", nil, nil)
+	}
+
+	fromText := locales.GetMessage(localizer, "MsgReviewFrom", map[string]interface{}{
+		"FirstName": escapeMarkdownV2(suggestion.FirstName),
+		"Username":  usernameDisplay, // Username part is already handled
+		"UserID":    suggestion.SuggesterID,
+	}, nil)
+
+	// Prepare caption text
+	var captionContent string
+	if suggestion.Caption != "" {
+		captionContent = escapeMarkdownV2(suggestion.Caption)
+	} else {
+		captionContent = locales.GetMessage(localizer, "MsgReviewNoCaptionPlaceholder", nil, nil)
+	}
+	// Get the prefix like "Caption: " or "Подпись: " using the new key
+	captionPrefix := locales.GetMessage(localizer, "MsgReviewCaptionPrefix", nil, nil)
+	// Manually construct the final line, ensuring content is escaped
+	captionLine := captionPrefix + " " + captionContent // Add space manually
+
+	return fmt.Sprintf("%s\n%s\n%s", indexText, fromText, captionLine)
 }

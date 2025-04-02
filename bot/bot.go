@@ -199,6 +199,31 @@ func (b *Bot) handleUpdateInLoop(ctx context.Context, update telego.Update) {
 	switch {
 	case update.Message != nil:
 		message := *update.Message
+		userID := message.From.ID
+
+		// --- Suggestion Manager Handling ---
+		// Check if the suggestion manager should handle this message first
+		// This includes states like awaiting content for /suggest
+		suggestionMgr := b.handler.SuggestionManager() // Get manager via getter
+		if suggestionMgr != nil {                      // Check if the returned manager instance is nil
+			processedBySuggestionManager, suggestionErr := suggestionMgr.HandleMessage(ctx, update)
+			if suggestionErr != nil {
+				logPrefix := fmt.Sprintf("[User:%d]", userID)
+				log.Printf("%s Suggestion handler error: %v", logPrefix, suggestionErr)
+				sentry.CaptureException(fmt.Errorf("%s suggestion handler error: %w", logPrefix, suggestionErr))
+				// Suggestion manager should ideally handle user feedback directly
+				return // Stop further processing if manager handled it (even with error)
+			}
+			if processedBySuggestionManager {
+				if b.debug {
+					log.Printf("[User:%d] Message handled by suggestion manager.", userID)
+				}
+				return // Stop further processing if manager handled it successfully
+			}
+		}
+		// --- End Suggestion Manager Handling ---
+
+		// If not handled by suggestion manager, proceed with standard handlers
 		switch {
 		case message.Text != "" && strings.HasPrefix(message.Text, "/"):
 			b.handleCommandUpdate(ctx, message)

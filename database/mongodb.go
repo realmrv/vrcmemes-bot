@@ -4,45 +4,38 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"vrcmemes-bot/config"
 	// "vrcmemes-bot/database/models" // No longer needed here
 
 	// "go.mongodb.org/mongo-driver/bson" // No longer needed here
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // DB var DB *mongo.Database // Commented out or remove if not used globally
 
-// ConnectDB establishes a connection to the MongoDB specified in the configuration.
-// It returns a MongoDB client, a database instance, and an error if connection fails.
+// ConnectDB establishes a connection to the MongoDB database using the provided configuration.
+// It returns the MongoDB client, database object, and an error if connection fails.
 func ConnectDB(cfg *config.Config) (*mongo.Client, *mongo.Database, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+	opts := options.Client().ApplyURI(cfg.MongoDBURI).SetServerAPIOptions(serverAPI)
 
-	clientOptions := options.Client().ApplyURI(cfg.MongoDBURI)
-	client, err := mongo.Connect(ctx, clientOptions)
+	client, err := mongo.Connect(context.TODO(), opts)
 	if err != nil {
-		// Wrap error for context
-		return nil, nil, fmt.Errorf("failed to connect to MongoDB at %s: %w", cfg.MongoDBURI, err)
+		return nil, nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
 
-	// Verify the connection
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		// Ensure disconnect attempt happens before returning the ping error
-		disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer disconnectCancel()
-		if disconnectErr := client.Disconnect(disconnectCtx); disconnectErr != nil {
-			log.Printf("Error disconnecting MongoDB after ping failure: %v", disconnectErr)
-		}
-		// Wrap ping error
+	// Send a ping to confirm a successful connection
+	var result bson.M
+	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{Key: "ping", Value: 1}}).Decode(&result); err != nil {
+		_ = client.Disconnect(context.TODO()) // Attempt to disconnect on ping failure
 		return nil, nil, fmt.Errorf("failed to ping MongoDB: %w", err)
 	}
+	log.Println("Successfully connected and pinged MongoDB!")
 
-	db := client.Database(cfg.MongoDBName)
-	log.Printf("Successfully connected to MongoDB database: %s", cfg.MongoDBName)
+	db := client.Database(cfg.MongoDBDatabase) // Use MongoDBDatabase here
+
 	return client, db, nil
 }

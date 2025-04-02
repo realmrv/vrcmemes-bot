@@ -64,8 +64,16 @@
     "translation": "Hi! I'm a bot for posting memes to the channel. Send me a photo or text, and I'll post it."
   },
   {
-    "id": "MsgHelpFooter",
+    "id": "MsgHelpHeader",
+    "translation": "Available commands:"
+  },
+  {
+    "id": "MsgHelpFooterAdmin",
     "translation": "\n\nSend me a photo or text to publish. Use /caption [text] to add a caption to the next message."
+  },
+  {
+    "id": "MsgHelpFooterUser",
+    "translation": "\n\nUse /suggest to propose a post for publication."
   },
   {
     "id": "MsgStatus",
@@ -129,7 +137,7 @@
   },
   {
     "id": "MsgReviewFrom",
-    "translation": "From: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})"
+    "translation": "From: {{.FirstName}} \\(@{{.Username}}, ID: {{.UserID}}\\)"
   },
   {
     "id": "MsgReviewCaption",
@@ -150,5 +158,17 @@
   {
     "id": "MsgReviewErrorStartingSession",
     "translation": "Error starting review session."
+  },
+  {
+    "id": "MsgReviewNoCaptionPlaceholder",
+    "translation": "_No caption_"
+  },
+  {
+    "id": "MsgReviewNoUsernamePlaceholder",
+    "translation": "_(no username)_"
+  },
+  {
+    "id": "MsgReviewCaptionPrefix",
+    "translation": "Caption:"
   }
 ] 

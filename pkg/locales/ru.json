@@ -140,8 +140,16 @@
     "translation": "Привет! Я бот для публикации мемов в канал. Отправь мне фото или текст, и я опубликую его в канале."
   },
   {
-    "id": "MsgHelpFooter",
+    "id": "MsgHelpHeader",
+    "translation": "Доступные команды:"
+  },
+  {
+    "id": "MsgHelpFooterAdmin",
     "translation": "\n\nОтправь мне фото или текст для публикации. Используй /caption [текст] для добавления подписи к следующему сообщению."
+  },
+  {
+    "id": "MsgHelpFooterUser",
+    "translation": "\n\nИспользуй /suggest, чтобы предложить пост для публикации."
   },
   {
     "id": "MsgStatus",
@@ -150,6 +158,30 @@
   {
     "id": "MsgVersion",
     "translation": "Версия бота: {{.Version}}"
+  },
+  {
+    "id": "CmdStartDesc",
+    "translation": "Запускает бота"
+  },
+  {
+    "id": "CmdHelpDesc",
+    "translation": "Показывает это справочное сообщение"
+  },
+  {
+    "id": "CmdStatusDesc",
+    "translation": "Показывает статус бота и ваш ID"
+  },
+  {
+    "id": "CmdVersionDesc",
+    "translation": "Показывает версию бота"
+  },
+  {
+    "id": "CmdCaptionDesc",
+    "translation": "Установить или обновить подпись для следующей группы фото"
+  },
+  {
+    "id": "CmdShowCaptionDesc",
+    "translation": "Показать текущую активную подпись"
   },
   {
     "id": "CmdClearCaptionDesc",
@@ -173,7 +205,7 @@
   },
   {
     "id": "MsgReviewFrom",
-    "translation": "От: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})"
+    "translation": "От: {{.FirstName}} \\(@{{.Username}}, ID: {{.UserID}}\\)"
   },
   {
     "id": "MsgReviewCaption",
@@ -194,5 +226,17 @@
   {
     "id": "MsgReviewErrorStartingSession",
     "translation": "Ошибка при запуске сессии просмотра предложений."
+  },
+  {
+    "id": "MsgReviewNoCaptionPlaceholder",
+    "translation": "_Нет подписи_"
+  },
+  {
+    "id": "MsgReviewNoUsernamePlaceholder",
+    "translation": "_(нет юзернейма)_"
+  },
+  {
+    "id": "MsgReviewCaptionPrefix",
+    "translation": "Подпись:"
   }
 ] 

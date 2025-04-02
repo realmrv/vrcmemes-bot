@@ -4,61 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 	"vrcmemes-bot/pkg/locales"
 
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
 )
 
-// IsAdmin checks if a user ID belongs to an administrator of the target channel.
-// Uses cached results if available and not expired.
-func (m *Manager) IsAdmin(ctx context.Context, userID int64) (bool, error) {
-	m.adminCacheMutex.RLock()
-	isCached := false
-	if time.Since(m.adminCacheTime) < m.adminCacheTTL {
-		for _, admin := range m.adminCache {
-			if user := admin.MemberUser(); user.ID != 0 && user.ID == userID {
-				isCached = true
-				break
-			}
-		}
-	}
-	m.adminCacheMutex.RUnlock()
-
-	if isCached {
-		return true, nil
-	}
-
-	m.adminCacheMutex.Lock()
-	defer m.adminCacheMutex.Unlock()
-
-	if time.Since(m.adminCacheTime) < m.adminCacheTTL {
-		for _, admin := range m.adminCache {
-			if user := admin.MemberUser(); user.ID != 0 && user.ID == userID {
-				return true, nil
-			}
-		}
-	}
-
-	admins, err := m.bot.GetChatAdministrators(ctx, &telego.GetChatAdministratorsParams{
-		ChatID: telego.ChatID{ID: m.targetChannelID},
-	})
-	if err != nil {
-		return false, fmt.Errorf("failed to get chat administrators: %w", err)
-	}
-
-	m.adminCache = admins
-	m.adminCacheTime = time.Now()
-
-	for _, admin := range admins {
-		if user := admin.MemberUser(); user.ID != 0 && user.ID == userID {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
+// IsAdmin is now defined correctly in manager.go
 
 // HandleReviewCommand handles the /review command by initiating a review session.
 func (m *Manager) HandleReviewCommand(ctx context.Context, update telego.Update) error {

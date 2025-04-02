@@ -62,27 +62,64 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, messa
 // HandleHelp handles the /help command.
 // It generates a help message listing available commands, updates user info, logs the action, and sends the help text.
 func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	userID := message.From.ID
+
 	// Create localizer
-	// TODO: Detect user language
 	lang := locales.DefaultLanguage
 	if message.From != nil && message.From.LanguageCode != "" {
-		// lang = message.From.LanguageCode
+		// lang = message.From.LanguageCode // TODO: Detect user language
 	}
 	localizer := locales.NewLocalizer(lang)
 
-	var helpText string
-	for _, cmd := range h.commands {
-		// Localize command description
-		descKey := "Cmd" + strings.Title(cmd.Command) + "Desc"
-		localizedDesc := locales.GetMessage(localizer, descKey, nil, nil)
-		helpText += fmt.Sprintf("/%s - %s\n", cmd.Command, localizedDesc)
+	// Check if the user is an admin
+	isAdmin := false // Default to false
+	if h.suggestionManager != nil {
+		var checkErr error
+		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
+		if checkErr != nil {
+			log.Printf("Error checking admin status for user %d: %v. Assuming non-admin.", userID, checkErr)
+			isAdmin = false // Treat error as non-admin for safety
+		}
+		log.Printf("User %d admin status for /help: %t", userID, isAdmin)
+	} else {
+		log.Printf("Warning: Suggestion manager is nil, cannot check admin status for user %d", userID)
 	}
-	// Localize footer
-	helpText += locales.GetMessage(localizer, "MsgHelpFooter", nil, nil)
 
-	// Placeholder: Determine admin status
-	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID)
-	isAdmin := false // Placeholder
+	var helpText strings.Builder
+	helpText.WriteString(locales.GetMessage(localizer, "MsgHelpHeader", nil, nil) + "\n") // Add a header key
+
+	// Filter commands based on admin status
+	for _, cmd := range h.commands {
+		showCommand := false
+		if isAdmin {
+			// Admins see all commands except /suggest
+			if cmd.Command != "suggest" {
+				showCommand = true
+			}
+		} else {
+			// Non-admins see only /start and /suggest
+			if cmd.Command == "start" || cmd.Command == "suggest" {
+				showCommand = true
+			}
+		}
+
+		if showCommand {
+			// Localize command description
+			// Use the Description field directly as it now holds the key
+			localizedDesc := locales.GetMessage(localizer, cmd.Description, nil, nil)
+			helpText.WriteString(fmt.Sprintf("/%s - %s\n", cmd.Command, localizedDesc))
+		}
+	}
+	// Select and localize the appropriate footer
+	var footerKey string
+	if isAdmin {
+		footerKey = "MsgHelpFooterAdmin"
+	} else {
+		footerKey = "MsgHelpFooterUser"
+	}
+	helpText.WriteString(locales.GetMessage(localizer, footerKey, nil, nil))
+
+	// Update user info (record admin status)
 	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_help")
 	if err != nil {
 		log.Printf("Failed to update user info for user %d during /help: %v", message.From.ID, err)
@@ -91,14 +128,15 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 
 	// Log help command action
 	err = h.actionLogger.LogUserAction(message.From.ID, "command_help", map[string]interface{}{
-		"chat_id": message.Chat.ID,
+		"chat_id":  message.Chat.ID,
+		"is_admin": isAdmin, // Log admin status
 	})
 	if err != nil {
 		log.Printf("Failed to log /help command for user %d: %v", message.From.ID, err)
 		// Potentially send to Sentry
 	}
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, helpText)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, helpText.String())
 }
 
 // HandleStatus handles the /status command.
@@ -200,19 +238,25 @@ func (h *MessageHandler) HandleSuggest(ctx context.Context, bot *telego.Bot, mes
 }
 
 // setupCommands registers the bot's commands with Telegram.
-// It builds the list of commands from the handler's configuration and uses the bot instance to set them.
+// It builds the list of commands from the handler's configuration, localizes their descriptions,
+// and uses the bot instance to set them.
 func (h *MessageHandler) setupCommands(ctx context.Context, bot *telego.Bot) error {
 	if len(h.commands) == 0 {
 		log.Println("No commands defined in handler, skipping SetMyCommands.")
 		return nil // No commands to set is not an error
 	}
 
-	commands := make([]telego.BotCommand, len(h.commands))
-	for i, cmd := range h.commands {
-		commands[i] = telego.BotCommand{
+	// Create a localizer for the default language to translate descriptions
+	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+
+	commands := make([]telego.BotCommand, 0, len(h.commands)) // Initialize with capacity
+	for _, cmd := range h.commands {
+		// Get the localized description using the key stored in cmd.Description
+		localizedDesc := locales.GetMessage(localizer, cmd.Description, nil, nil)
+		commands = append(commands, telego.BotCommand{
 			Command:     cmd.Command,
-			Description: cmd.Description,
-		}
+			Description: localizedDesc, // Use the translated description
+		})
 	}
 
 	// Use the passed bot instance to set the commands

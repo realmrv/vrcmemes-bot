@@ -8,28 +8,29 @@ import (
 	"syscall"
 	"time"
 
+	sentry "github.com/getsentry/sentry-go"
+	telego "github.com/mymmrac/telego"
+
 	telegoBot "vrcmemes-bot/bot"
 	"vrcmemes-bot/config"
 	"vrcmemes-bot/database"
 	"vrcmemes-bot/handlers"
 	"vrcmemes-bot/internal/suggestions"
 	"vrcmemes-bot/pkg/locales"
-
-	"github.com/getsentry/sentry-go"
-	"github.com/mymmrac/telego"
+	// _ "go.uber.org/automaxprocs" // Uncomment if needed
 )
 
 func main() {
+	// Load configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Configuration error: %v", err)
+	}
+
 	// Initialize localization bundle
 	locales.Init()
 
-	// Loading configuration
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Initialize Sentry
+	// Initialize Sentry (if DSN is provided)
 	err = sentry.Init(sentry.ClientOptions{
 		Dsn:              cfg.SentryDSN,
 		Environment:      cfg.AppEnv,
@@ -44,7 +45,7 @@ func main() {
 	defer sentry.Flush(2 * time.Second)
 
 	// Connect to MongoDB
-	client, db, err := database.ConnectDB(cfg)
+	client, _, err := database.ConnectDB(cfg)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatal(err)
@@ -58,8 +59,14 @@ func main() {
 		}
 	}()
 
-	// Create logger/repository instance
-	dbLogger := database.NewMongoLogger(db)
+	// Create repository instances
+	db := client.Database(cfg.MongoDBDatabase) // Get database instance
+	suggestionRepo := database.NewMongoSuggestionRepository(db)
+	userActionLogger := database.NewMongoLogger(db)
+	postLogger := database.NewMongoLogger(db)
+	// Assuming UserRepository is implemented by MongoLogger for now
+	// If not, use: userRepo := database.NewMongoUserRepository(db)
+	userRepo := database.NewMongoLogger(db)
 
 	// Creating context for application lifecycle
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -78,16 +85,23 @@ func main() {
 		log.Fatalf("Failed to create telego bot: %v", err)
 	}
 
-	// 2. Create the suggestion repository
-	suggestionRepo := database.NewMongoSuggestionRepository(db)
+	// 2. Create the suggestion manager
+	suggestionManager := suggestions.NewManager(
+		bot,
+		suggestionRepo, // Pass the specific suggestion repository
+		cfg.ChannelID,
+	)
 
-	// 3. Create the suggestion manager
-	suggestionMgr := suggestions.NewManager(bot, cfg.ChannelID, suggestionRepo)
+	// 3. Create message handler with dependencies
+	messageHandler := handlers.NewMessageHandler(
+		cfg.ChannelID,
+		postLogger,       // Pass the specific post logger
+		userActionLogger, // Pass the specific action logger
+		userRepo,         // Pass the specific user repository
+		suggestionManager,
+	)
 
-	// 4. Create message handler with dependencies
-	messageHandler := handlers.NewMessageHandler(cfg.ChannelID, dbLogger, dbLogger, dbLogger, suggestionMgr)
-
-	// 5. Create the bot wrapper
+	// 4. Create the bot wrapper
 	appBot, err := telegoBot.New(bot, cfg.Debug, messageHandler)
 	if err != nil {
 		sentry.CaptureException(err)
