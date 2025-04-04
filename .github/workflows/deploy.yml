@@ -9,6 +9,7 @@ jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
+    environment: production # Specify the environment to access its secrets
 
     steps:
       - name: Checkout code # Although code is pulled on the server, this step is good practice and required by some actions like ssh-agent
