@@ -27,7 +27,7 @@ alwaysApply: true
 
 #### 3. Automatic Code Documentation
 
-- **Function Comments**: Add a comment before new functions or methods in this format:
+- **Function Comments**: Suggest adding comments primarily for exported functions/methods or complex unexported ones, following this format:
 
   ```go
   // FunctionName describes the purpose of the function.
@@ -36,7 +36,7 @@ alwaysApply: true
   }
   ```
 
-- **Explanatory Notes**: Suggest clarifying comments for complex or non-obvious code sections based on logic analysis.
+- **Explanatory Notes**: Suggest clarifying comments *only* for particularly complex or non-obvious code sections based on logic analysis.
 
 #### 4. Support for Navigation and Package Imports
 
@@ -56,7 +56,7 @@ alwaysApply: true
 
 - **Table-Driven Tests**: Consider using table-driven tests for testing multiple scenarios efficiently.
 - **Testing Tools**: Prefer standard library tools (`testing`, `net/http/httptest`) where possible. Offer autocompletion for tools like `t.Errorf` and standard mocking techniques.
-- **Test Suggestions**: If a function is added without a test, propose creating a matching test function.
+- **Test Suggestions**: If a non-trivial function is added without a test, propose creating a matching test function.
 
 #### 6. Adherence to Golang Best Practices
 
@@ -77,6 +77,7 @@ alwaysApply: true
 #### 9. Implementation and Behavior
 
 - **Core Principle**: Prioritize simplicity and clarity, reflecting Golang's philosophy.
+- **Focus on Execution**: Prioritize completing the requested task efficiently. Provide explanations mainly for non-obvious steps or when choices need justification, rather than detailing every routine action.
 - **Error Handling**: Never omit error checks in generated code.
 - **Tool Integration**: Collaborate with `gofmt` and static analysis tools (e.g., `staticcheck`, `golangci-lint`), recommending their use after modifications.
 - **Version Awareness**: Stay updated with the latest Golang releases and adjust templates accordingly.
@@ -100,3 +101,9 @@ alwaysApply: true
 - Do not manually change the `go.sum` file; let Go tooling manage it.
 - Specify database interaction patterns if applicable (e.g., preferred ORM/driver, migration strategy). [Placeholder: Add details if relevant]
 - Respect `.gitignore` rules. Ignore files and folders from `.gitignore` files when scanning. Handle `.env` files carefully: they should typically be in `.gitignore` to avoid committing secrets. Ensure local setup instructions cover `.env` file creation if needed.
+- **Avoid Large Files**: Avoid automatically reading or scanning excessively large files (e.g., over several thousand lines or >1MB) unless specifically required for the task and confirmed. Prefer targeted reading or searching within large files to conserve context.
+
+#### 13. Reporting and Verbosity
+
+- **Concise Explanations**: Keep explanations for individual tool calls or actions brief, focusing on *why* a step is necessary only if it's not obvious. Avoid step-by-step narration of routine operations.
+- **Summary Report**: At the conclusion of a multi-step task, provide a concise summary of the key actions taken and the final outcome.
