@@ -40,7 +40,7 @@ jobs:
 
             echo "Building and restarting Docker containers..."
             # Rebuild images (if Dockerfile changed) and restart containers in detached mode
-            docker-compose up -d --build
+            docker compose up -d --build
 
             echo "Cleaning up dangling Docker images..." # Optional: Remove old, unused images
             docker image prune -f
