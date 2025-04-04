@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,8 @@ import (
 	// th "github.com/mymmrac/telego/telegohandler" // th is no longer needed
 	// Assuming config.Version is needed
 	"vrcmemes-bot/pkg/locales" // Import locales package
+
+	"github.com/nicksnyder/go-i18n/v2/i18n" // Correct import for i18n.Localizer
 )
 
 // HandleStart handles the /start command.
@@ -24,34 +27,16 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, messa
 		return h.sendError(ctx, bot, message.Chat.ID, fmt.Errorf("failed to set up commands: %w", err))
 	}
 
-	// Create a localizer (determine user language later, default to Russian for now)
-	// TODO: Detect user language from message.From.LanguageCode if available
-	lang := locales.DefaultLanguage // Default to Russian
-	if message.From != nil && message.From.LanguageCode != "" {
-		// Potentially use user's language if supported
-		// lang = message.From.LanguageCode
-	}
-	localizer := locales.NewLocalizer(lang)
+	localizer := h.getLocalizer(message.From) // Use helper
 
 	// Placeholder: Determine if the user is an admin (requires implementation)
-	// isAdmin, _ := h.isUserAdmin(ctx, bot, message.From.ID) // isUserAdmin will also need to be updated
-	isAdmin := false // Placeholder
-	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_start")
-	if err != nil {
-		// Log internal error, don't return to user unless critical
-		log.Printf("Failed to update user info for user %d during /start: %v", message.From.ID, err)
-		// Potentially send to Sentry here
-	}
+	// Let's assume checkAdmin is the way to go, even if it's false for start now.
+	isAdmin, _ := h.checkAdmin(ctx, message.From.ID) // Use helper, ignore error for now
 
-	// Log start command action
-	err = h.actionLogger.LogUserAction(message.From.ID, "command_start", map[string]interface{}{
+	// Record activity (UpdateUser + LogUserAction combined)
+	h.recordUserActivity(ctx, message.From, ActionCommandStart, isAdmin, map[string]interface{}{
 		"chat_id": message.Chat.ID,
 	})
-	if err != nil {
-		// Log internal error
-		log.Printf("Failed to log /start command for user %d: %v", message.From.ID, err)
-		// Potentially send to Sentry here
-	}
 
 	// Get the localized start message
 	startMsg := locales.GetMessage(localizer, "MsgStart", nil, nil)
@@ -63,27 +48,12 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, messa
 // It generates a help message listing available commands, updates user info, logs the action, and sends the help text.
 func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	userID := message.From.ID
-
-	// Create localizer
-	lang := locales.DefaultLanguage
-	if message.From != nil && message.From.LanguageCode != "" {
-		// lang = message.From.LanguageCode // TODO: Detect user language
-	}
-	localizer := locales.NewLocalizer(lang)
+	localizer := h.getLocalizer(message.From) // Use helper
 
 	// Check if the user is an admin
-	isAdmin := false // Default to false
-	if h.suggestionManager != nil {
-		var checkErr error
-		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
-		if checkErr != nil {
-			log.Printf("Error checking admin status for user %d: %v. Assuming non-admin.", userID, checkErr)
-			isAdmin = false // Treat error as non-admin for safety
-		}
-		log.Printf("User %d admin status for /help: %t", userID, isAdmin)
-	} else {
-		log.Printf("Warning: Suggestion manager is nil, cannot check admin status for user %d", userID)
-	}
+	isAdmin, _ := h.checkAdmin(ctx, userID) // Use helper, ignore error as checkAdmin logs it
+	// Log admin status check result for debugging /help specifically
+	log.Printf("[Cmd:help User:%d] Admin status check result: %t", userID, isAdmin)
 
 	var helpText strings.Builder
 	helpText.WriteString(locales.GetMessage(localizer, "MsgHelpHeader", nil, nil) + "\n") // Add a header key
@@ -119,22 +89,11 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 	}
 	helpText.WriteString(locales.GetMessage(localizer, footerKey, nil, nil))
 
-	// Update user info (record admin status)
-	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_help")
-	if err != nil {
-		log.Printf("Failed to update user info for user %d during /help: %v", message.From.ID, err)
-		// Potentially send to Sentry
-	}
-
-	// Log help command action
-	err = h.actionLogger.LogUserAction(message.From.ID, "command_help", map[string]interface{}{
+	// Record activity (UpdateUser + LogUserAction combined)
+	h.recordUserActivity(ctx, message.From, ActionCommandHelp, isAdmin, map[string]interface{}{
 		"chat_id":  message.Chat.ID,
-		"is_admin": isAdmin, // Log admin status
+		"is_admin": isAdmin, // Log admin status used for help message
 	})
-	if err != nil {
-		log.Printf("Failed to log /help command for user %d: %v", message.From.ID, err)
-		// Potentially send to Sentry
-	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, helpText.String())
 }
@@ -143,13 +102,7 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 // It retrieves the current active caption, formats a status message, updates user info, logs the action, and sends the status.
 func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	caption, _ := h.GetActiveCaption(message.Chat.ID)
-
-	// Create localizer (default to Russian)
-	lang := locales.DefaultLanguage
-	if message.From != nil && message.From.LanguageCode != "" {
-		// lang = message.From.LanguageCode
-	}
-	localizer := locales.NewLocalizer(lang)
+	localizer := h.getLocalizer(message.From) // Use helper
 
 	// Get localized status message
 	statusText := locales.GetMessage(localizer, "MsgStatus", map[string]interface{}{
@@ -157,21 +110,14 @@ func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, mess
 		"Caption":   caption,
 	}, nil)
 
-	// Placeholder: Determine admin status
-	isAdmin := false
-	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_status")
-	if err != nil {
-		log.Printf("Failed to update user info for user %d during /status: %v", message.From.ID, err)
-	}
+	// Check admin status (even if not used by logic, good to record)
+	isAdmin, _ := h.checkAdmin(ctx, message.From.ID)
 
-	// Log status command action
-	err = h.actionLogger.LogUserAction(message.From.ID, "command_status", map[string]interface{}{
+	// Record activity
+	h.recordUserActivity(ctx, message.From, ActionCommandStatus, isAdmin, map[string]interface{}{
 		"chat_id": message.Chat.ID,
-		"caption": caption,
+		"caption": caption, // Log the caption that was active
 	})
-	if err != nil {
-		log.Printf("Failed to log /status command for user %d: %v", message.From.ID, err)
-	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, statusText)
 }
@@ -184,33 +130,21 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 		version = "dev"
 	}
 
-	// Create localizer (default to Russian)
-	lang := locales.DefaultLanguage
-	if message.From != nil && message.From.LanguageCode != "" {
-		// lang = message.From.LanguageCode
-	}
-	localizer := locales.NewLocalizer(lang)
+	localizer := h.getLocalizer(message.From) // Use helper
 
 	// Get localized version message
 	versionText := locales.GetMessage(localizer, "MsgVersion", map[string]interface{}{
 		"Version": version,
 	}, nil)
 
-	// Placeholder: Determine admin status
-	isAdmin := false
-	err := h.userRepo.UpdateUser(ctx, message.From.ID, message.From.Username, message.From.FirstName, message.From.LastName, isAdmin, "command_version")
-	if err != nil {
-		log.Printf("Failed to update user info for user %d during /version: %v", message.From.ID, err)
-	}
+	// Check admin status (even if not used by logic, good to record)
+	isAdmin, _ := h.checkAdmin(ctx, message.From.ID)
 
-	// Log version command action
-	err = h.actionLogger.LogUserAction(message.From.ID, "command_version", map[string]interface{}{
+	// Record activity
+	h.recordUserActivity(ctx, message.From, ActionCommandVersion, isAdmin, map[string]interface{}{
 		"chat_id": message.Chat.ID,
 		"version": version,
 	})
-	if err != nil {
-		log.Printf("Failed to log /version command for user %d: %v", message.From.ID, err)
-	}
 
 	return h.sendSuccess(ctx, bot, message.Chat.ID, versionText)
 }
@@ -235,6 +169,122 @@ func (h *MessageHandler) HandleSuggest(ctx context.Context, bot *telego.Bot, mes
 	// Return nil to prevent the main bot loop from sending a generic error message.
 	// User feedback should be handled entirely by the suggestionManager.
 	return nil
+}
+
+// HandleReview handles the /review command by delegating to the suggestion manager.
+func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	userID := message.From.ID
+
+	// --- Admin Check ---
+	isAdmin, err := h.checkAdmin(ctx, userID) // Use helper
+	if err != nil {
+		// checkAdmin already logged the error. We might want to report to Sentry here.
+		// sentry.CaptureException(fmt.Errorf("admin check failed for /review user %d: %w", userID, err))
+		// Decide if we need to send an error message if the check itself failed (e.g., manager nil)
+		if errors.Is(err, errors.New("suggestion manager not initialized")) { // Example check
+			localizer := h.getLocalizer(message.From)
+			errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+			return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg)) // Return the generic error message
+		}
+		// If it was just a DB error or similar during IsAdmin, maybe we don't send error to user?
+		// For now, let's assume non-admin if check failed for reasons other than nil manager.
+		isAdmin = false
+	}
+
+	if !isAdmin {
+		// Log attempt and send specific error message
+		log.Printf("[Cmd:review User:%d] Non-admin user attempted to use /review.", userID)
+		localizer := h.getLocalizer(message.From) // Use helper
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		// Don't record activity for failed attempts?
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
+	}
+	// --- End Admin Check ---
+
+	// User is admin, record activity (optional for review start?)
+	// h.recordUserActivity(ctx, message.From, ActionCommandReview, isAdmin, map[string]interface{}{"chat_id": message.Chat.ID})
+
+	// Construct update for manager and delegate
+	update := telego.Update{Message: &message}
+	if h.suggestionManager != nil {
+		err = h.suggestionManager.HandleReviewCommand(ctx, update)
+		if err != nil {
+			// Log error from HandleReviewCommand. It should handle user feedback itself.
+			log.Printf("[Cmd:review User:%d] Error from suggestionManager.HandleReviewCommand: %v", userID, err)
+			// Return nil because HandleReviewCommand should manage sending errors to the user.
+			return nil
+		}
+		return nil // Success
+	} else {
+		// This case should technically be caught by checkAdmin, but added for safety
+		log.Printf("[Cmd:review User:%d] Error: Suggestion manager became nil after admin check?", userID)
+		localizer := h.getLocalizer(message.From) // Use helper
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
+	}
+}
+
+// --- Helper Functions ---
+
+// checkAdmin checks if the user is an admin using the suggestion manager.
+// It returns the admin status and any error encountered during the check.
+// It logs warnings/errors internally.
+func (h *MessageHandler) checkAdmin(ctx context.Context, userID int64) (isAdmin bool, err error) {
+	if h.suggestionManager == nil {
+		log.Printf("[AdminCheck User:%d] Warning: Suggestion manager is nil", userID)
+		// Return false and an error to indicate the check couldn't be performed reliably.
+		return false, errors.New("suggestion manager not initialized")
+	}
+	isAdmin, err = h.suggestionManager.IsAdmin(ctx, userID)
+	if err != nil {
+		log.Printf("[AdminCheck User:%d] Error checking admin status: %v. Assuming non-admin.", userID, err)
+		// Return false and the original error for potential upstream logging (e.g., Sentry)
+		return false, err
+	}
+	return isAdmin, nil
+}
+
+// getLocalizer creates a localizer instance based on the user's language preference.
+// Falls back to the default language if the user or their language code is unavailable.
+func (h *MessageHandler) getLocalizer(user *telego.User) *i18n.Localizer {
+	lang := locales.DefaultLanguage
+	if user != nil && user.LanguageCode != "" {
+		// TODO: Implement robust language selection based on supported languages
+		// Example: if locales.IsSupported(user.LanguageCode) { lang = user.LanguageCode }
+		// log.Printf("[Localizer User:%d] Using language: %s", user.ID, lang) // Optional debug log
+	}
+	return locales.NewLocalizer(lang)
+}
+
+// recordUserActivity updates user info in the repository and logs the user action.
+// It logs errors internally if updates or logging fail.
+func (h *MessageHandler) recordUserActivity(ctx context.Context, user *telego.User, action string, isAdmin bool, details map[string]interface{}) {
+	if user == nil {
+		log.Printf("[Activity] Cannot record activity for action '%s': user is nil", action)
+		return
+	}
+
+	// Update user information
+	if h.userRepo != nil {
+		err := h.userRepo.UpdateUser(ctx, user.ID, user.Username, user.FirstName, user.LastName, isAdmin, action)
+		if err != nil {
+			log.Printf("[Activity User:%d Action:%s] Failed to update user info: %v", user.ID, action, err)
+			// Consider sending to Sentry: sentry.CaptureException(fmt.Errorf("failed to update user %d for action %s: %w", user.ID, action, err))
+		}
+	} else {
+		log.Printf("[Activity User:%d Action:%s] Warning: UserRepository is nil, cannot update user info", user.ID, action)
+	}
+
+	// Log the user action
+	if h.actionLogger != nil {
+		err := h.actionLogger.LogUserAction(user.ID, action, details)
+		if err != nil {
+			log.Printf("[Activity User:%d Action:%s] Failed to log user action: %v", user.ID, action, err)
+			// Consider sending to Sentry: sentry.CaptureException(fmt.Errorf("failed to log action %s for user %d: %w", user.ID, action, err))
+		}
+	} else {
+		log.Printf("[Activity User:%d Action:%s] Warning: UserActionLogger is nil, cannot log action", user.ID, action)
+	}
 }
 
 // setupCommands registers the bot's commands with Telegram.

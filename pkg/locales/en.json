@@ -170,5 +170,77 @@
   {
     "id": "MsgReviewCaptionPrefix",
     "translation": "Caption:"
+  },
+  {
+    "id": "MsgCaptionForMediaGroup",
+    "translation": "Caption '{{.Caption}}' will be used for this media group."
+  },
+  {
+    "id": "MsgCaptionNoneToClear",
+    "translation": "No active caption to clear."
+  },
+  {
+    "id": "MsgErrorCaptionNotSet",
+    "translation": "Caption not set."
+  },
+  {
+    "id": "MsgErrorGenericWithArg",
+    "translation": "An error occurred: {{.Error}}"
+  },
+  {
+    "id": "MsgErrorInternalServer",
+    "translation": "Internal server error."
+  },
+  {
+    "id": "MsgErrorNoMediaGroup",
+    "translation": "Could not find media group for this caption."
+  },
+  {
+    "id": "MsgMediaGroupSuccess",
+    "translation": "Media group published to the channel."
+  },
+  {
+    "id": "MsgReviewActionApproved",
+    "translation": "Suggestion approved and published."
+  },
+  {
+    "id": "MsgReviewActionRejected",
+    "translation": "Suggestion rejected."
+  },
+  {
+    "id": "MsgReviewCurrentSuggestionIndex",
+    "translation": "Suggestion {{.Index}} of {{.Total}}"
+  },
+  {
+    "id": "MsgReviewErrorDuringPublishing",
+    "translation": "Error publishing approved suggestion."
+  },
+  {
+    "id": "MsgReviewQueueIsEmpty",
+    "translation": "Suggestion queue is empty."
+  },
+  {
+    "id": "MsgReviewSuggestionDetails",
+    "translation": "From: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})\\nComment: `{{.Comment}}`"
+  },
+  {
+    "id": "MsgSuggestErrorCheckingSubscription",
+    "translation": "Failed to check your subscription status. Please try again later."
+  },
+  {
+    "id": "MsgSuggestInternalProcessingError",
+    "translation": "An internal error occurred while processing your request. Please try again later."
+  },
+  {
+    "id": "MsgSuggestionMediaGroupPartReceived",
+    "translation": "Received part of the media group. Waiting for the rest..."
+  },
+  {
+    "id": "MsgSuggestionMediaGroupProcessingError",
+    "translation": "Error processing media group for suggestion."
+  },
+  {
+    "id": "MsgSuggestionTooManyPhotosError",
+    "translation": "You can attach a maximum of 10 photos to one suggestion."
   }
 ] 

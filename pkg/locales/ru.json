@@ -238,5 +238,9 @@
   {
     "id": "MsgReviewCaptionPrefix",
     "translation": "Подпись:"
+  },
+  {
+    "id": "MsgCaptionNoneToClear",
+    "translation": "Нет активной подписи для удаления."
   }
 ] 

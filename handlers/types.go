@@ -2,16 +2,31 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"log"
 	"sync"
 
 	"vrcmemes-bot/database"
 	"vrcmemes-bot/database/models"
 	"vrcmemes-bot/internal/suggestions"
-	"vrcmemes-bot/pkg/locales"
 
 	"github.com/mymmrac/telego"
+)
+
+// Action types for logging and user updates
+const (
+	ActionCommandStart            = "command_start"
+	ActionCommandHelp             = "command_help"
+	ActionCommandStatus           = "command_status"
+	ActionCommandVersion          = "command_version"
+	ActionCommandCaption          = "command_caption"
+	ActionCommandShowCaption      = "command_show_caption"
+	ActionCommandClearCaption     = "command_clear_caption"
+	ActionCommandSuggest          = "command_suggest" // Although suggest handler doesn't log like this yet
+	ActionCommandReview           = "command_review"  // Although review handler doesn't log like this yet
+	ActionSetCaptionReply         = "set_caption_reply"
+	ActionSendTextToChannel       = "send_text_to_channel"
+	ActionSendPhotoToChannel      = "send_photo_to_channel"
+	ActionSendMediaGroupToChannel = "send_media_group_to_channel"
 )
 
 // Command represents a bot command, mapping the command string to its description and handler function.
@@ -119,51 +134,6 @@ func (h *MessageHandler) DeleteMediaGroupCaption(groupID string) {
 	h.mediaGroupCaptions.Delete(groupID)
 }
 
-// HandleReview handles the /review command by delegating to the suggestion manager.
-func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, message telego.Message) error {
-	userID := message.From.ID
-
-	// --- Admin Check ---
-	isAdmin := false
-	if h.suggestionManager != nil {
-		var checkErr error
-		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
-		if checkErr != nil {
-			log.Printf("Error checking admin status for user %d in HandleReview: %v. Assuming non-admin.", userID, checkErr)
-			isAdmin = false
-		}
-	} else {
-		log.Printf("Warning: Suggestion manager is nil in HandleReview, cannot check admin status for user %d", userID)
-	}
-
-	if !isAdmin {
-		log.Printf("User %d (not admin) attempted to use /review.", userID)
-		lang := locales.DefaultLanguage
-		if message.From != nil && message.From.LanguageCode != "" {
-			// lang = message.From.LanguageCode
-		}
-		localizer := locales.NewLocalizer(lang)
-		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
-		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
-	}
-	// --- End Admin Check ---
-
-	update := telego.Update{Message: &message} // Construct update for manager
-	if h.suggestionManager != nil {
-		return h.suggestionManager.HandleReviewCommand(ctx, update)
-	} else {
-		log.Println("Error: Suggestion manager not initialized in MessageHandler")
-		// Use localized error message
-		lang := locales.DefaultLanguage // Default lang
-		if message.From != nil && message.From.LanguageCode != "" {
-			// lang = message.From.LanguageCode
-		}
-		localizer := locales.NewLocalizer(lang)
-		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
-		return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
-	}
-}
-
 // UserRepo provides access to the user repository dependency.
 func (h *MessageHandler) UserRepo() database.UserRepository {
 	return h.userRepo
@@ -189,17 +159,3 @@ func (h *MessageHandler) ProcessSuggestionCallback(ctx context.Context, query te
 func (h *MessageHandler) SuggestionManager() *suggestions.Manager {
 	return h.suggestionManager
 }
-
-/* // Removed duplicate PostLog definition
-type PostLog struct {
-	SenderID             int64     `bson:"sender_id"`
-	SenderUsername       string    `bson:"sender_username"`
-	Caption              string    `bson:"caption"`
-	MessageType          string    `bson:"message_type"`
-	ReceivedAt           time.Time `bson:"received_at"`
-	PublishedAt          time.Time `bson:"published_at"`
-	ChannelID            int64     `bson:"channel_id"`
-	ChannelPostID        int       `bson:"channel_post_id"`
-	OriginalMediaGroupID string    `bson:"original_media_group_id"`
-}
-*/
