@@ -256,7 +256,13 @@ func (b *Bot) Start(ctx context.Context) {
 	var err error
 	// Get updates channel. Pass the main context to UpdatesViaLongPolling.
 	// The library should respect context cancellation for graceful shutdown.
-	b.updatesChan, err = b.bot.UpdatesViaLongPolling(ctx, nil)
+	// Explicitly allow message and callback_query updates.
+	updatesParams := &telego.GetUpdatesParams{
+		AllowedUpdates: []string{"message", "callback_query"},
+		// You can adjust Timeout if needed, default is 0 (which implies long polling default)
+		// Timeout: 60, // Example: 60 seconds timeout
+	}
+	b.updatesChan, err = b.bot.UpdatesViaLongPolling(ctx, updatesParams)
 	if err != nil {
 		log.Fatalf("Failed to get updates channel: %v", err)
 	}
