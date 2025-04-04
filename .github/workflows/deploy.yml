@@ -23,14 +23,14 @@ jobs:
       - name: Add Server to Known Hosts
         # Add the server's host key to known_hosts to avoid interactive confirmation
         # -H hashes the hostname for security
-        run: ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+        run: ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy via SSH
         run: |
           # Connect to the server and execute commands
           # StrictHostKeyChecking=no is used here as a fallback, but ssh-keyscan above should make it unnecessary
           # Use HEREDOC (<< 'EOF') to pass a multi-line script
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+          ssh -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             echo "Navigating to project directory..."
             cd ${{ secrets.SERVER_PROJECT_PATH }} # Change to the project directory on the server
 
