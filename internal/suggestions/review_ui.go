@@ -54,21 +54,39 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	approveData := fmt.Sprintf("review:%s:approve:%d", suggestionIDHex, suggestionIndex)
 	rejectData := fmt.Sprintf("review:%s:reject:%d", suggestionIDHex, suggestionIndex)
 	nextData := fmt.Sprintf("review:%s:next:%d", suggestionIDHex, suggestionIndex)
+	previousData := fmt.Sprintf("review:%s:previous:%d", suggestionIDHex, suggestionIndex) // Data for previous button
 
-	keyboard := tu.InlineKeyboard(
+	// Get localized button texts
+	btnApproveText := locales.GetMessage(localizer, "BtnApprove", nil, nil)
+	btnRejectText := locales.GetMessage(localizer, "BtnReject", nil, nil)
+	btnNextText := locales.GetMessage(localizer, "BtnNext", nil, nil)
+	btnPreviousText := locales.GetMessage(localizer, "BtnPrevious", nil, nil)
+
+	keyboardRows := [][]telego.InlineKeyboardButton{
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("✅ Approve").WithCallbackData(approveData),
-			tu.InlineKeyboardButton("❌ Reject").WithCallbackData(rejectData),
+			tu.InlineKeyboardButton(btnApproveText).WithCallbackData(approveData),
+			tu.InlineKeyboardButton(btnRejectText).WithCallbackData(rejectData),
 		),
-	)
-
-	if suggestionIndex+1 < totalSuggestionsInBatch {
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("➡️ Next").WithCallbackData(nextData),
-		))
 	}
 
-	var sentMessage *telego.Message
+	// Add navigation row if needed
+	navRow := []telego.InlineKeyboardButton{}
+	if suggestionIndex > 0 {
+		navRow = append(navRow, tu.InlineKeyboardButton(btnPreviousText).WithCallbackData(previousData))
+	}
+	if suggestionIndex+1 < totalSuggestionsInBatch {
+		navRow = append(navRow, tu.InlineKeyboardButton(btnNextText).WithCallbackData(nextData))
+	}
+	if len(navRow) > 0 {
+		keyboardRows = append(keyboardRows, navRow)
+	}
+
+	keyboard := &telego.InlineKeyboardMarkup{
+		InlineKeyboard: keyboardRows,
+	}
+
+	var sentMediaMessages []*telego.Message // Store sent media messages
+	var sentControlMessage *telego.Message  // Store sent control message
 	var err error
 
 	if len(inputMedia) > 0 {
@@ -83,64 +101,129 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 		}
 	}
 
-	_, err = m.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
-		ChatID: tu.ID(chatID),
-		Media:  inputMedia,
-	})
+	// --- Sending Media and Control Message --- //
+	if len(inputMedia) == 1 {
+		// Send single photo/video directly
+		var fileID string
+		if photoInput, ok := inputMedia[0].(*telego.InputMediaPhoto); ok {
+			fileID = photoInput.Media.FileID
+		}
+		// TODO: Handle other media types like video if necessary
 
-	if err != nil {
-		log.Printf("[SendReviewMessage] Error sending review media group for suggestion %s to admin %d: %v", suggestionIDHex, adminID, err)
-	} else {
-		sentMessage, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), messageText).WithReplyMarkup(keyboard).WithParseMode(telego.ModeMarkdownV2))
-		if err != nil {
-			log.Printf("[SendReviewMessage] Error sending control message for suggestion %s to admin %d after media group: %v", suggestionIDHex, adminID, err)
+		sendParams := &telego.SendPhotoParams{
+			ChatID:      tu.ID(chatID),
+			Photo:       telego.InputFile{FileID: fileID}, // Use extracted fileID
+			Caption:     messageText,                      // Combine text with the single media message
+			ParseMode:   telego.ModeMarkdownV2,
+			ReplyMarkup: keyboard,
+		}
+		msg, sendErr := m.bot.SendPhoto(ctx, sendParams)
+		if sendErr != nil {
+			log.Printf("[SendReviewMessage] Error sending single review photo for suggestion %s to admin %d: %v", suggestionIDHex, adminID, sendErr)
+			err = sendErr
 		} else {
-			log.Printf("[SendReviewMessage] Media group sent, followed by control message ID %d", sentMessage.MessageID)
+			sentMediaMessages = append(sentMediaMessages, msg) // Store the single message
+			sentControlMessage = msg                           // In this case, the media message is also the control message
+			log.Printf("[SendReviewMessage] Sent single media message ID %d (also control) for suggestion %s to admin %d", msg.MessageID, suggestionIDHex, adminID)
+		}
+	} else if len(inputMedia) > 1 {
+		// Send media group first
+		sentMediaGroupMessages, sendErr := m.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
+			ChatID: tu.ID(chatID),
+			Media:  inputMedia,
+		})
+		if sendErr != nil {
+			log.Printf("[SendReviewMessage] Error sending review media group for suggestion %s to admin %d: %v", suggestionIDHex, adminID, sendErr)
+			err = sendErr
+		} else {
+			// Send the control message separately after the media group
+			controlMsg, sendErrCtrl := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), messageText).WithReplyMarkup(keyboard).WithParseMode(telego.ModeMarkdownV2))
+			if sendErrCtrl != nil {
+				log.Printf("[SendReviewMessage] Error sending control message for suggestion %s to admin %d after media group: %v", suggestionIDHex, adminID, sendErrCtrl)
+				err = sendErrCtrl // Report the error from sending the control message
+			} else {
+				// Convert []telego.Message to []*telego.Message
+				sentMediaPtrs := make([]*telego.Message, len(sentMediaGroupMessages))
+				for i := range sentMediaGroupMessages {
+					sentMediaPtrs[i] = &sentMediaGroupMessages[i]
+				}
+				sentMediaMessages = sentMediaPtrs // Store pointers
+				sentControlMessage = controlMsg   // Store the separate control message
+				log.Printf("[SendReviewMessage] Media group (%d msgs) sent, followed by control message ID %d", len(sentMediaGroupMessages), controlMsg.MessageID)
+			}
 		}
 	}
+	// --- End Sending Media and Control Message --- //
 
 	if err != nil {
+		// Handle error during sending
 		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
 		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
 		if sendErr != nil {
 			log.Printf("[SendReviewMessage] Error sending general error message after send failure: %v", sendErr)
 		}
-		return err
+		return err // Return the original sending error
 	}
 
+	// --- Update Session --- //
 	m.reviewSessionsMutex.Lock()
 	if currentSession, exists := m.reviewSessions[adminID]; exists {
-		if sentMessage != nil {
-			currentSession.LastReviewMessageID = sentMessage.MessageID
+		if sentControlMessage != nil { // Check if control message was successfully sent
+			// Collect IDs of sent media messages
+			mediaIDs := make([]int, 0, len(sentMediaMessages))
+			for _, msg := range sentMediaMessages {
+				if msg != nil {
+					mediaIDs = append(mediaIDs, msg.MessageID)
+				}
+			}
+
+			currentSession.CurrentMediaMessageIDs = mediaIDs
+			currentSession.CurrentControlMessageID = sentControlMessage.MessageID
 			currentSession.CurrentIndex = suggestionIndex
-			log.Printf("[SendReviewMessage] Sent suggestion %d (ID: %s) for review to admin %d. Control MessageID: %d", suggestionIndex+1, suggestionIDHex, adminID, sentMessage.MessageID)
+			currentSession.LastReviewMessageID = 0 // Mark old field as unused (or remove it later)
+			log.Printf("[SendReviewMessage] Stored MediaIDs: %v, ControlID: %d for session of admin %d", mediaIDs, sentControlMessage.MessageID, adminID)
 		} else {
-			log.Printf("[SendReviewMessage] Control message was not sent successfully, cannot store MessageID for session of admin %d", adminID)
+			log.Printf("[SendReviewMessage] Control message was not sent successfully, cannot update session for admin %d", adminID)
 		}
 	} else {
-		log.Printf("[SendReviewMessage] Session for admin %d disappeared before storing message ID.", adminID)
+		log.Printf("[SendReviewMessage] Session for admin %d disappeared before storing message IDs.", adminID)
 	}
 	m.reviewSessionsMutex.Unlock()
+	// --- End Update Session --- //
 
 	return nil
 }
 
-// deleteReviewMessage attempts to delete the review prompt message.
-func (m *Manager) deleteReviewMessage(ctx context.Context, chatID int64, messageID int) error {
-	if messageID == 0 {
-		log.Printf("[deleteReviewMessage] Cannot delete message, ID is 0 for chat %d", chatID)
-		return nil
+// deleteReviewMessages attempts to delete the review prompt message and associated media messages.
+func (m *Manager) deleteReviewMessages(ctx context.Context, chatID int64, mediaMessageIDs []int, controlMessageID int) {
+	// Delete media messages first
+	for _, msgID := range mediaMessageIDs {
+		if msgID != 0 {
+			err := m.bot.DeleteMessage(ctx, &telego.DeleteMessageParams{
+				ChatID:    tu.ID(chatID),
+				MessageID: msgID,
+			})
+			if err != nil {
+				// Log error but continue trying to delete others
+				log.Printf("[deleteReviewMessages] Failed to delete media message %d in chat %d: %v", msgID, chatID, err)
+			} else {
+				log.Printf("[deleteReviewMessages] Deleted media message %d in chat %d", msgID, chatID)
+			}
+		}
 	}
-	err := m.bot.DeleteMessage(ctx, &telego.DeleteMessageParams{
-		ChatID:    tu.ID(chatID),
-		MessageID: messageID,
-	})
-	if err != nil {
-		log.Printf("[deleteReviewMessage] Failed to delete review message %d in chat %d: %v", messageID, chatID, err)
-		return err
+
+	// Delete control message
+	if controlMessageID != 0 {
+		err := m.bot.DeleteMessage(ctx, &telego.DeleteMessageParams{
+			ChatID:    tu.ID(chatID),
+			MessageID: controlMessageID,
+		})
+		if err != nil {
+			log.Printf("[deleteReviewMessages] Failed to delete control message %d in chat %d: %v", controlMessageID, chatID, err)
+		} else {
+			log.Printf("[deleteReviewMessages] Deleted control message %d in chat %d", controlMessageID, chatID)
+		}
 	}
-	log.Printf("[deleteReviewMessage] Deleted review message %d in chat %d", messageID, chatID)
-	return nil
 }
 
 // answerCallbackQuery is a helper to answer callback queries.

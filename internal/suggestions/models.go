@@ -21,13 +21,15 @@ const (
 	StateAwaitingSuggestion UserState = "awaiting_suggestion" // Bot is waiting for the user to send suggestion content
 )
 
-// ReviewSession stores the state for an admin's review session.
+// ReviewSession stores the state for an admin's review process.
 type ReviewSession struct {
-	AdminID             int64               // ID of the admin performing the review
-	ReviewChatID        int64               // ID of the chat where the /review command was initiated
-	Suggestions         []models.Suggestion // The batch of suggestions being reviewed
-	CurrentIndex        int                 // Index of the suggestion currently being viewed
-	LastReviewMessageID int                 // Message ID of the last sent review prompt
+	AdminID                 int64               // ID of the admin performing the review
+	ReviewChatID            int64               // ID of the chat where the review messages are sent
+	Suggestions             []models.Suggestion // The batch of suggestions being reviewed
+	CurrentIndex            int                 // Index of the suggestion currently being viewed
+	CurrentMediaMessageIDs  []int               // IDs of the messages containing the media being reviewed
+	CurrentControlMessageID int                 // ID of the message containing the Approve/Reject/Next buttons
+	LastReviewMessageID     int                 // Message ID of the last sent review prompt
 }
 
 // Note: The 'Suggestion' struct defined in the original file seems like a local representation

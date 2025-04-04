@@ -119,6 +119,13 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 			log.Printf("[CallbackQuery] Error handling next action: %v", err)
 			return true, err
 		}
+	case "previous":
+		log.Printf("[CallbackQuery] Action: Previous for SugID %s by Admin %d", suggestionIDHex, adminID)
+		err := m.handlePreviousAction(ctx, query.ID, adminID, session, currentIndex)
+		if err != nil {
+			log.Printf("[CallbackQuery] Error handling previous action: %v", err)
+			return true, err
+		}
 	default:
 		log.Printf("[CallbackQuery] Unknown action: %s", action)
 		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)

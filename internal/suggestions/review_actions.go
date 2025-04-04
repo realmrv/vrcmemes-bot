@@ -12,69 +12,182 @@ import (
 	tu "github.com/mymmrac/telego/telegoutil"
 )
 
-// handleApproveAction processes the approval of a suggestion.
-func (m *Manager) handleApproveAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, index int, reviewMessageID int) error {
-	suggestionToPublish := session.Suggestions[index]
-
-	// Create localizer (default to Russian)
-	lang := locales.DefaultLanguage
-	// TODO: Get admin lang pref
-	localizer := locales.NewLocalizer(lang)
-
-	err := m.publishSuggestion(ctx, suggestionToPublish)
-	if err != nil {
-		log.Printf("[handleApproveAction] Failed to publish suggestion %s: %v", suggestionToPublish.ID.Hex(), err)
-		errorMsg := locales.GetMessage(localizer, "MsgReviewErrorDuringPublishing", nil, nil)
-		_ = m.answerCallbackQuery(ctx, queryID, errorMsg, true)
-		return err
-	}
-
-	err = m.UpdateSuggestionStatus(ctx, suggestionToPublish.ID, models.StatusApproved, adminID)
-	if err != nil {
-		log.Printf("[handleApproveAction] Failed to update suggestion %s status to approved after publishing: %v", suggestionToPublish.ID.Hex(), err)
-		// Send confirmation but mention DB error
-		dbErrorMsg := locales.GetMessage(localizer, "MsgReviewActionApprovedWithDBError", nil, nil)
-		_ = m.answerCallbackQuery(ctx, queryID, dbErrorMsg, false)
-		_ = m.deleteReviewMessage(ctx, adminID, reviewMessageID)
-		_ = m.processNextSuggestion(ctx, adminID, session, index)
-		return err // Return the error after attempting cleanup
-	}
-
-	approvedMsg := locales.GetMessage(localizer, "MsgReviewActionApproved", nil, nil)
-	_ = m.answerCallbackQuery(ctx, queryID, approvedMsg, false)
-	_ = m.deleteReviewMessage(ctx, adminID, reviewMessageID)
-	return m.processNextSuggestion(ctx, adminID, session, index)
-}
-
-// handleRejectAction processes the rejection of a suggestion.
-func (m *Manager) handleRejectAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, index int, reviewMessageID int) error {
+// handleApproveAction approves a suggestion, posts it, cleans up messages, and proceeds.
+func (m *Manager) handleApproveAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, index int, _ int /* reviewMessageID - no longer needed directly */) error {
 	suggestion := session.Suggestions[index]
+	localizer := locales.NewLocalizer(locales.DefaultLanguage) // TODO: Use admin lang pref
 
-	// Create localizer (default to Russian)
-	lang := locales.DefaultLanguage
-	localizer := locales.NewLocalizer(lang)
+	// Approve and publish
+	dbErr := m.UpdateSuggestionStatus(ctx, suggestion.ID, models.StatusApproved, adminID)
+	publishErr := m.publishSuggestion(ctx, suggestion)
 
-	err := m.UpdateSuggestionStatus(ctx, suggestion.ID, models.StatusRejected, adminID)
-	if err != nil {
-		log.Printf("[handleRejectAction] Failed to update suggestion %s status to rejected: %v", suggestion.ID.Hex(), err)
-		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
-		_ = m.answerCallbackQuery(ctx, queryID, errorMsg, true) // Use general error message
-		// Don't proceed to next suggestion if DB update failed, admin might want to retry
-		return err
+	// Determine response message
+	var responseMsg string
+	if publishErr != nil {
+		log.Printf("[ApproveAction] Error publishing suggestion %s: %v", suggestion.ID.Hex(), publishErr)
+		responseMsg = locales.GetMessage(localizer, "MsgReviewErrorDuringPublishing", nil, nil)
+		if dbErr != nil {
+			// Append DB error suffix if both failed
+			responseMsg += locales.GetMessage(localizer, "MsgErrorDBUpdateFailedSuffix", nil, nil)
+		}
+	} else {
+		responseMsg = locales.GetMessage(localizer, "MsgReviewActionApproved", nil, nil)
+		if dbErr != nil {
+			// Append DB error suffix if publishing succeeded but DB update failed
+			responseMsg = locales.GetMessage(localizer, "MsgReviewActionApprovedWithDBError", nil, nil)
+		}
 	}
 
-	rejectedMsg := locales.GetMessage(localizer, "MsgReviewActionRejected", nil, nil)
-	_ = m.answerCallbackQuery(ctx, queryID, rejectedMsg, false)
-	_ = m.deleteReviewMessage(ctx, adminID, reviewMessageID)
-	return m.processNextSuggestion(ctx, adminID, session, index)
+	// Answer callback query first
+	_ = m.answerCallbackQuery(ctx, queryID, responseMsg, false)
+
+	// Delete the original review messages (media + control)
+	go m.deleteReviewMessages(context.Background(), session.ReviewChatID, session.CurrentMediaMessageIDs, session.CurrentControlMessageID)
+
+	// Remove suggestion and send next or finish
+	m.reviewSessionsMutex.Lock()
+	currentSession, ok := m.reviewSessions[adminID]
+	if !ok {
+		m.reviewSessionsMutex.Unlock()
+		log.Printf("[ApproveAction Admin:%d] Session disappeared before removing suggestion.", adminID)
+		return nil // Session gone, nothing more to do
+	}
+	if index < 0 || index >= len(currentSession.Suggestions) {
+		m.reviewSessionsMutex.Unlock()
+		log.Printf("[ApproveAction Admin:%d] Invalid index %d for removal (len %d).", adminID, index, len(currentSession.Suggestions))
+		return fmt.Errorf("invalid index %d during approve action", index)
+	}
+	currentSession.Suggestions = append(currentSession.Suggestions[:index], currentSession.Suggestions[index+1:]...)
+	err := m.sendNextOrFinishReview(ctx, adminID, currentSession)
+	m.reviewSessionsMutex.Unlock()
+	return err
 }
 
-// handleNextAction processes the request to show the next suggestion (skip).
-func (m *Manager) handleNextAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, currentIndex int) error {
-	_ = m.answerCallbackQuery(ctx, queryID, "", false) // Acknowledge the button press
+// handleRejectAction rejects a suggestion, cleans up messages, and proceeds.
+func (m *Manager) handleRejectAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, index int, _ int /* reviewMessageID - no longer needed directly */) error {
+	suggestion := session.Suggestions[index]
+	localizer := locales.NewLocalizer(locales.DefaultLanguage) // TODO: Use admin lang pref
 
-	// Skip the current suggestion by processing it as if it were completed
-	return m.processNextSuggestion(ctx, adminID, session, currentIndex)
+	// Reject suggestion in DB
+	dbErr := m.UpdateSuggestionStatus(ctx, suggestion.ID, models.StatusRejected, adminID)
+
+	// Determine response message
+	responseMsg := locales.GetMessage(localizer, "MsgReviewActionRejected", nil, nil)
+	if dbErr != nil {
+		log.Printf("[RejectAction] Error updating suggestion %s status to rejected: %v", suggestion.ID.Hex(), dbErr)
+		responseMsg += locales.GetMessage(localizer, "MsgErrorDBUpdateFailedSuffix", nil, nil)
+	}
+
+	// Answer callback query first
+	_ = m.answerCallbackQuery(ctx, queryID, responseMsg, false)
+
+	// Delete the original review messages (media + control)
+	go m.deleteReviewMessages(context.Background(), session.ReviewChatID, session.CurrentMediaMessageIDs, session.CurrentControlMessageID)
+
+	// Remove suggestion and send next or finish
+	m.reviewSessionsMutex.Lock()
+	currentSession, ok := m.reviewSessions[adminID]
+	if !ok {
+		m.reviewSessionsMutex.Unlock()
+		log.Printf("[RejectAction Admin:%d] Session disappeared before removing suggestion.", adminID)
+		return nil // Session gone, nothing more to do
+	}
+	if index < 0 || index >= len(currentSession.Suggestions) {
+		m.reviewSessionsMutex.Unlock()
+		log.Printf("[RejectAction Admin:%d] Invalid index %d for removal (len %d).", adminID, index, len(currentSession.Suggestions))
+		return fmt.Errorf("invalid index %d during reject action", index)
+	}
+	currentSession.Suggestions = append(currentSession.Suggestions[:index], currentSession.Suggestions[index+1:]...)
+	err := m.sendNextOrFinishReview(ctx, adminID, currentSession)
+	m.reviewSessionsMutex.Unlock()
+	return err
+}
+
+// handleNextAction moves to the next suggestion in the review session, cleaning up old messages.
+func (m *Manager) handleNextAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, currentIndex int) error {
+	// Answer callback query immediately (no text needed for "next")
+	_ = m.answerCallbackQuery(ctx, queryID, "", false)
+
+	// Delete the current review messages (media + control)
+	go m.deleteReviewMessages(context.Background(), session.ReviewChatID, session.CurrentMediaMessageIDs, session.CurrentControlMessageID)
+
+	// Send the next suggestion message
+	nextIndex := currentIndex + 1
+	if nextIndex >= len(session.Suggestions) {
+		// Should ideally not happen if button wasn't shown, but handle defensively
+		log.Printf("[NextAction Admin:%d] Attempted to go next from last index %d.", adminID, currentIndex)
+		// Wrap around? Send finished message? Resending last for now.
+		nextIndex = len(session.Suggestions) - 1
+	}
+
+	m.reviewSessionsMutex.Lock()
+	session, ok := m.reviewSessions[adminID]
+	if !ok {
+		m.reviewSessionsMutex.Unlock()
+		log.Printf("[NextAction Admin:%d] Session disappeared before sending next message.", adminID)
+		return nil
+	}
+	m.reviewSessionsMutex.Unlock()
+
+	return m.SendReviewMessage(ctx, session.ReviewChatID, adminID, nextIndex)
+}
+
+// handlePreviousAction moves to the previous suggestion in the review session, cleaning up old messages.
+func (m *Manager) handlePreviousAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, currentIndex int) error {
+	// Answer callback query immediately
+	_ = m.answerCallbackQuery(ctx, queryID, "", false)
+
+	// Delete the current review messages (media + control)
+	go m.deleteReviewMessages(context.Background(), session.ReviewChatID, session.CurrentMediaMessageIDs, session.CurrentControlMessageID)
+
+	// Send the previous suggestion message
+	previousIndex := currentIndex - 1
+	if previousIndex < 0 {
+		// Should ideally not happen if button wasn't shown, but handle defensively
+		log.Printf("[PreviousAction Admin:%d] Attempted to go previous from index 0.", adminID)
+		// Resend the first message? Or send error? Resending first for now.
+		previousIndex = 0
+	}
+
+	m.reviewSessionsMutex.Lock() // Lock needed before accessing session again outside processNextSuggestion
+	session, ok := m.reviewSessions[adminID]
+	if !ok {
+		m.reviewSessionsMutex.Unlock()
+		log.Printf("[PreviousAction Admin:%d] Session disappeared before sending previous message.", adminID)
+		return nil
+	}
+	m.reviewSessionsMutex.Unlock()
+
+	return m.SendReviewMessage(ctx, session.ReviewChatID, adminID, previousIndex)
+}
+
+// sendNextOrFinishReview sends the next suggestion or finishes the session if the queue is empty.
+// Assumes the lock is held by the caller if session modification occurred.
+func (m *Manager) sendNextOrFinishReview(ctx context.Context, adminID int64, session *ReviewSession) error {
+	if len(session.Suggestions) > 0 {
+		// The next suggestion to show is now at index 0 after deletion
+		nextIndex := 0
+		log.Printf("[sendNextOrFinishReview Admin:%d] Sending next suggestion at index %d", adminID, nextIndex)
+		m.reviewSessionsMutex.Unlock() // Release lock before blocking call
+		chatIDErr := m.SendReviewMessage(ctx, session.ReviewChatID, adminID, nextIndex)
+		m.reviewSessionsMutex.Lock() // Re-acquire lock
+		return chatIDErr
+	} else {
+		// No more suggestions in this batch
+		log.Printf("[sendNextOrFinishReview Admin:%d] Review batch finished.", adminID)
+		delete(m.reviewSessions, adminID) // Delete the session
+
+		m.reviewSessionsMutex.Unlock()
+		lang := locales.DefaultLanguage
+		localizer := locales.NewLocalizer(lang)
+		queueEmptyMsg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(session.ReviewChatID), queueEmptyMsg))
+		m.reviewSessionsMutex.Lock() // Re-acquire lock
+		if err != nil {
+			log.Printf("[sendNextOrFinishReview Admin:%d] Error sending queue empty message: %v", adminID, err)
+		}
+		return nil // End of batch is not an error
+	}
 }
 
 // publishSuggestion sends the approved suggestion to the target channel.
@@ -99,54 +212,5 @@ func (m *Manager) publishSuggestion(ctx context.Context, suggestion models.Sugge
 	return nil
 }
 
-// processNextSuggestion removes the suggestion at the given index from the session
-// and either sends the next one or cleans up the session.
-func (m *Manager) processNextSuggestion(ctx context.Context, adminID int64, session *ReviewSession, completedIndex int) error {
-	m.reviewSessionsMutex.Lock()
-	defer m.reviewSessionsMutex.Unlock()
-
-	session, ok := m.reviewSessions[adminID]
-	if !ok {
-		log.Printf("[processNextSuggestion] Session for admin %d disappeared.", adminID)
-		return nil
-	}
-
-	if completedIndex < 0 || completedIndex >= len(session.Suggestions) {
-		log.Printf("[processNextSuggestion] Invalid completedIndex %d for admin %d session (len %d).", completedIndex, adminID, len(session.Suggestions))
-		delete(m.reviewSessions, adminID)
-		return fmt.Errorf("invalid index %d in processNextSuggestion (session length %d)", completedIndex, len(session.Suggestions))
-	}
-	session.Suggestions = append(session.Suggestions[:completedIndex], session.Suggestions[completedIndex+1:]...)
-
-	if len(session.Suggestions) > 0 {
-		// The next suggestion to show is now at the 'completedIndex' position, if it exists.
-		// If the removed item was the last one, this index is now out of bounds.
-		nextIndex := completedIndex
-		if nextIndex >= len(session.Suggestions) {
-			nextIndex = len(session.Suggestions) - 1 // Show the new last item
-		}
-
-		m.reviewSessionsMutex.Unlock() // Release lock before potentially blocking call
-		// Use session.ReviewChatID as the target chat ID
-		chatIDErr := m.SendReviewMessage(ctx, session.ReviewChatID, adminID, nextIndex)
-		m.reviewSessionsMutex.Lock() // Re-acquire lock
-		return chatIDErr
-	} else {
-		log.Printf("[processNextSuggestion] Review batch finished for admin %d.", adminID)
-		delete(m.reviewSessions, adminID)
-
-		m.reviewSessionsMutex.Unlock()
-		// Create localizer (default to Russian)
-		lang := locales.DefaultLanguage
-		// TODO: Get admin lang pref?
-		localizer := locales.NewLocalizer(lang)
-		queueEmptyMsg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
-		// Use session.ReviewChatID as the target chat ID
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(session.ReviewChatID), queueEmptyMsg))
-		m.reviewSessionsMutex.Lock() // Re-acquire lock
-		if err != nil {
-			log.Printf("[processNextSuggestion] Error sending queue empty message to chat %d (admin %d): %v", session.ReviewChatID, adminID, err)
-		}
-		return nil
-	}
-}
+// processNextSuggestion (REMOVED/REPLACED by sendNextOrFinishReview)
+/* func (m *Manager) processNextSuggestion(ctx context.Context, adminID int64, session *ReviewSession, completedIndex int) error { ... } */

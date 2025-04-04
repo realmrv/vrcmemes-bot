@@ -242,5 +242,21 @@
   {
     "id": "MsgCaptionNoneToClear",
     "translation": "Нет активной подписи для удаления."
+  },
+  {
+    "id": "BtnApprove",
+    "translation": "✅ Одобрить"
+  },
+  {
+    "id": "BtnReject",
+    "translation": "❌ Отклонить"
+  },
+  {
+    "id": "BtnNext",
+    "translation": "➡️ Далее"
+  },
+  {
+    "id": "BtnPrevious",
+    "translation": "⬅️ Назад"
   }
 ] 

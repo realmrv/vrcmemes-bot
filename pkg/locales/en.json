@@ -242,5 +242,21 @@
   {
     "id": "MsgSuggestionTooManyPhotosError",
     "translation": "You can attach a maximum of 10 photos to one suggestion."
+  },
+  {
+    "id": "BtnApprove",
+    "translation": "✅ Approve"
+  },
+  {
+    "id": "BtnReject",
+    "translation": "❌ Reject"
+  },
+  {
+    "id": "BtnNext",
+    "translation": "➡️ Next"
+  },
+  {
+    "id": "BtnPrevious",
+    "translation": "⬅️ Previous"
   }
 ] 
