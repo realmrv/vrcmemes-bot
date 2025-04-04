@@ -134,6 +134,23 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
 - **Admin:** Determined by having `creator` or `administrator` status in the Telegram channel specified by `CHANNEL_ID`. Admins can use all bot commands *except* `/suggest`. They can post directly, manage captions, and review suggestions (`/review`).
 - **User/Subscriber:** Can use `/start`, `/help`, and `/suggest` to propose posts. Must be subscribed to the target channel (`CHANNEL_ID`) to use `/suggest`.
 
+## Commands
+
+### User Commands
+
+- `/start`: Start interaction with the bot and get a welcome message.
+- `/help`: Show help information.
+- `/suggest`: Start the process of suggesting a post for the channel. (Requires channel subscription)
+
+### Admin Commands
+
+- `/start`: Start interaction with the bot and get a welcome message.
+- `/help`: Show help information.
+- `/status`: Show bot status and current caption.
+- `/version`: Show bot version.
+- `/review`: Start reviewing pending suggestions.
+- (Direct messages): Send photos, videos, or media groups directly to the bot to post them to the channel. Text in the message will be used as the caption.
+
 ## Suggestion Workflow
 
 1. A user subscribes to the channel defined by `CHANNEL_ID`.

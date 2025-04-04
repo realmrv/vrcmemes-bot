@@ -99,4 +99,4 @@ alwaysApply: true
 - Keep dependencies reasonably up-to-date, considering compatibility and stability. Avoid forcing the absolute latest versions if unnecessary.
 - Do not manually change the `go.sum` file; let Go tooling manage it.
 - Specify database interaction patterns if applicable (e.g., preferred ORM/driver, migration strategy). [Placeholder: Add details if relevant]
-- Respect `.gitignore` rules. Handle `.env` files carefully: they should typically be in `.gitignore` to avoid committing secrets. Ensure local setup instructions cover `.env` file creation if needed.
+- Respect `.gitignore` rules. Ignore files and folders from `.gitignore` files when scanning. Handle `.env` files carefully: they should typically be in `.gitignore` to avoid committing secrets. Ensure local setup instructions cover `.env` file creation if needed.
