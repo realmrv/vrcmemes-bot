@@ -188,7 +188,7 @@ func (m *Manager) buildReviewMessageText(localizer *i18n.Localizer, suggestion *
 	if suggestion.Username != "" {
 		// Don't escape the @, but escape the username itself if it contains special chars?
 		// For now, assume usernames are safe or handle specific cases if needed.
-		usernameDisplay = "@" + suggestion.Username
+		usernameDisplay = suggestion.Username
 	} else {
 		usernameDisplay = locales.GetMessage(localizer, "MsgReviewNoUsernamePlaceholder", nil, nil)
 	}

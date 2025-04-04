@@ -127,7 +127,8 @@ func (m *Manager) processNextSuggestion(ctx context.Context, adminID int64, sess
 		}
 
 		m.reviewSessionsMutex.Unlock() // Release lock before potentially blocking call
-		chatIDErr := m.SendReviewMessage(ctx, adminID, adminID, nextIndex)
+		// Use session.ReviewChatID as the target chat ID
+		chatIDErr := m.SendReviewMessage(ctx, session.ReviewChatID, adminID, nextIndex)
 		m.reviewSessionsMutex.Lock() // Re-acquire lock
 		return chatIDErr
 	} else {
@@ -140,10 +141,11 @@ func (m *Manager) processNextSuggestion(ctx context.Context, adminID int64, sess
 		// TODO: Get admin lang pref?
 		localizer := locales.NewLocalizer(lang)
 		queueEmptyMsg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(adminID), queueEmptyMsg))
+		// Use session.ReviewChatID as the target chat ID
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(session.ReviewChatID), queueEmptyMsg))
 		m.reviewSessionsMutex.Lock() // Re-acquire lock
 		if err != nil {
-			log.Printf("[processNextSuggestion] Error sending queue empty message to admin %d: %v", adminID, err)
+			log.Printf("[processNextSuggestion] Error sending queue empty message to chat %d (admin %d): %v", session.ReviewChatID, adminID, err)
 		}
 		return nil
 	}

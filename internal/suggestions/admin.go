@@ -64,6 +64,8 @@ func (m *Manager) startReviewSession(ctx context.Context, adminID, chatID int64)
 	}
 
 	session := &ReviewSession{
+		AdminID:      adminID, // Store the admin ID
+		ReviewChatID: chatID,  // Store the chat ID where the review started
 		Suggestions:  suggestions,
 		CurrentIndex: 0,
 	}
