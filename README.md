@@ -215,6 +215,23 @@ The bot uses MongoDB to store user actions, published post logs, and suggestions
 - **MongoDB Service:** Included in Docker Compose for convenience.
 - **Configuration:** Environment variables are loaded from the `.env` file.
 
+## CI/CD
+
+This project uses GitHub Actions for basic Continuous Deployment.
+
+- **Workflow:** `.github/workflows/deploy.yml`
+- **Trigger:** Pushes to the `develop` branch.
+- **Action:** Connects to the production server via SSH, pulls the latest changes from the `develop` branch, and rebuilds/restarts the Docker containers using `docker-compose up -d --build`.
+
+### Required Secrets
+
+For the deployment workflow to function, the following secrets must be configured in the GitHub repository settings (`Settings` > `Secrets and variables` > `Actions`):
+
+- `SSH_PRIVATE_KEY`: Private SSH key to access the server.
+- `SSH_HOST`: Hostname or IP address of the server.
+- `SSH_USER`: Username for SSH connection.
+- `SERVER_PROJECT_PATH`: Absolute path to the project directory on the server.
+
 ## License
 
 MIT
