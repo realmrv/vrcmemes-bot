@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"vrcmemes-bot/internal/config"
 
-	"vrcmemes-bot/config"
 	// "vrcmemes-bot/database/models" // No longer needed here
 
 	// "go.mongodb.org/mongo-driver/bson" // No longer needed here

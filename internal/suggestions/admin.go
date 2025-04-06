@@ -3,11 +3,10 @@ package suggestions
 import (
 	"context"
 	"fmt"
-	"log"
-	"vrcmemes-bot/pkg/locales"
-
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
+	"log"
+	"vrcmemes-bot/internal/locales"
 )
 
 // IsAdmin is now defined correctly in manager.go

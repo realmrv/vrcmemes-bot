@@ -7,9 +7,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
-
-	"vrcmemes-bot/handlers"
-	"vrcmemes-bot/pkg/locales"
+	"vrcmemes-bot/internal/handlers"
+	"vrcmemes-bot/internal/locales"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/mymmrac/telego"

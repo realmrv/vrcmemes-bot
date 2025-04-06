@@ -1,7 +1,7 @@
 package suggestions
 
 import (
-	"vrcmemes-bot/database/models" // Keep models import if ReviewSession uses it
+	"vrcmemes-bot/internal/database/models"
 )
 
 // SuggestionStatus defines the possible states of a suggestion.

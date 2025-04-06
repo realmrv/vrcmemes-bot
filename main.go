@@ -7,16 +7,16 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"vrcmemes-bot/internal/config"
+	database2 "vrcmemes-bot/internal/database"
+	"vrcmemes-bot/internal/handlers"
+	"vrcmemes-bot/internal/locales"
 
 	sentry "github.com/getsentry/sentry-go"
 	telego "github.com/mymmrac/telego"
 
 	telegoBot "vrcmemes-bot/bot"
-	"vrcmemes-bot/config"
-	"vrcmemes-bot/database"
-	"vrcmemes-bot/handlers"
 	"vrcmemes-bot/internal/suggestions"
-	"vrcmemes-bot/pkg/locales"
 	// _ "go.uber.org/automaxprocs" // Uncomment if needed
 )
 
@@ -45,7 +45,7 @@ func main() {
 	defer sentry.Flush(2 * time.Second)
 
 	// Connect to MongoDB
-	client, _, err := database.ConnectDB(cfg)
+	client, _, err := database2.ConnectDB(cfg)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatal(err)
@@ -61,12 +61,12 @@ func main() {
 
 	// Create repository instances
 	db := client.Database(cfg.MongoDBDatabase) // Get database instance
-	suggestionRepo := database.NewMongoSuggestionRepository(db)
-	userActionLogger := database.NewMongoLogger(db)
-	postLogger := database.NewMongoLogger(db)
+	suggestionRepo := database2.NewMongoSuggestionRepository(db)
+	userActionLogger := database2.NewMongoLogger(db)
+	postLogger := database2.NewMongoLogger(db)
 	// Assuming UserRepository is implemented by MongoLogger for now
 	// If not, use: userRepo := database.NewMongoUserRepository(db)
-	userRepo := database.NewMongoLogger(db)
+	userRepo := database2.NewMongoLogger(db)
 
 	// Creating context for application lifecycle
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

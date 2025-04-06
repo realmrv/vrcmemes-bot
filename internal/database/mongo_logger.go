@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"log"
 	"time"
-
-	"vrcmemes-bot/database/models"
+	"vrcmemes-bot/internal/database/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"

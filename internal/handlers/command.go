@@ -7,13 +7,11 @@ import (
 	"log"
 	"os"
 	"strings"
+	"vrcmemes-bot/internal/locales"
 
 	// "time" // time is not used directly in this file after logger refactoring
 
 	"github.com/mymmrac/telego"
-	// th "github.com/mymmrac/telego/telegohandler" // th is no longer needed
-	// Assuming config.Version is needed
-	"vrcmemes-bot/pkg/locales" // Import locales package
 
 	"github.com/nicksnyder/go-i18n/v2/i18n" // Correct import for i18n.Localizer
 )

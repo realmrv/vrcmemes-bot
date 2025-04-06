@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-
-	"vrcmemes-bot/database/models"
-	"vrcmemes-bot/pkg/locales"
+	"vrcmemes-bot/internal/database/models"
+	"vrcmemes-bot/internal/locales"
 
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"

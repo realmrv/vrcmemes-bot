@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-
-	"vrcmemes-bot/database/models"
-	"vrcmemes-bot/pkg/locales"
+	"vrcmemes-bot/internal/database/models"
+	"vrcmemes-bot/internal/locales"
+	"vrcmemes-bot/pkg/utils"
 
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
@@ -277,7 +277,7 @@ func (m *Manager) buildReviewMessageText(localizer *i18n.Localizer, suggestion *
 	}
 
 	fromText := locales.GetMessage(localizer, "MsgReviewFrom", map[string]interface{}{
-		"FirstName": escapeMarkdownV2(suggestion.FirstName),
+		"FirstName": utils.EscapeMarkdownV2(suggestion.FirstName),
 		"Username":  usernameDisplay, // Username part is already handled
 		"UserID":    suggestion.SuggesterID,
 	}, nil)
@@ -285,7 +285,7 @@ func (m *Manager) buildReviewMessageText(localizer *i18n.Localizer, suggestion *
 	// Prepare caption text
 	var captionContent string
 	if suggestion.Caption != "" {
-		captionContent = escapeMarkdownV2(suggestion.Caption)
+		captionContent = utils.EscapeMarkdownV2(suggestion.Caption)
 	} else {
 		captionContent = locales.GetMessage(localizer, "MsgReviewNoCaptionPlaceholder", nil, nil)
 	}

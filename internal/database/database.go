@@ -3,11 +3,9 @@ package database
 import (
 	"context"
 	"errors"
+	"vrcmemes-bot/internal/database/models"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
-
-	// Correct import path for models
-	"vrcmemes-bot/database/models"
 )
 
 // PostLogger defines methods for logging published posts

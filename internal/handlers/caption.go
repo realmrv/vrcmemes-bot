@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
-
-	"vrcmemes-bot/pkg/locales" // Import locales package
+	"vrcmemes-bot/internal/locales"
 
 	"github.com/mymmrac/telego"
 	// th "github.com/mymmrac/telego/telegohandler" // No longer needed

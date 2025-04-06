@@ -2,7 +2,7 @@ package database
 
 import (
 	"context"
-	"vrcmemes-bot/database/models"
+	"vrcmemes-bot/internal/database/models"
 )
 
 // PostLogger defines the interface for logging published posts.

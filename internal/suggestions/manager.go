@@ -7,14 +7,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"vrcmemes-bot/internal/database"
+	"vrcmemes-bot/internal/database/models"
+	"vrcmemes-bot/internal/locales"
 
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-
-	"vrcmemes-bot/database"
-	"vrcmemes-bot/database/models"
-	"vrcmemes-bot/pkg/locales"
 )
 
 // Manager handles the suggestion logic and storage.

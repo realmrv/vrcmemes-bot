@@ -4,9 +4,9 @@ import (
 	"context"
 	"log"
 	"sync"
+	"vrcmemes-bot/internal/database"
+	"vrcmemes-bot/internal/database/models"
 
-	"vrcmemes-bot/database"
-	"vrcmemes-bot/database/models"
 	"vrcmemes-bot/internal/suggestions"
 
 	"github.com/mymmrac/telego"

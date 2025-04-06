@@ -1,11 +1,11 @@
-package suggestions
+package utils
 
 import (
 	"strings"
 )
 
-// escapeMarkdownV2 escapes characters reserved by Telegram MarkdownV2.
-func escapeMarkdownV2(s string) string {
+// EscapeMarkdownV2 escapes characters reserved by Telegram MarkdownV2.
+func EscapeMarkdownV2(s string) string {
 	charsToEscape := []string{"_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
 	var result strings.Builder
 	result.Grow(len(s))

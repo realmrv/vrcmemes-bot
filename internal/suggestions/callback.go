@@ -6,11 +6,10 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"vrcmemes-bot/internal/locales"
 
 	"github.com/mymmrac/telego"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-
-	"vrcmemes-bot/pkg/locales"
 )
 
 // HandleCallbackQuery handles callback queries for suggestion review.

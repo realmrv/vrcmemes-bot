@@ -7,9 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"vrcmemes-bot/database/models"
-	"vrcmemes-bot/pkg/locales"
+	"vrcmemes-bot/internal/database/models"
+	"vrcmemes-bot/internal/locales"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/mymmrac/telego"
