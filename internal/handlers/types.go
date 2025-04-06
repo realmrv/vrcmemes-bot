@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"vrcmemes-bot/internal/auth"
 	"vrcmemes-bot/internal/database"
 	"vrcmemes-bot/internal/database/models"
 
@@ -60,6 +61,7 @@ type MessageHandler struct {
 	actionLogger      database.UserActionLogger // Interface for logging user actions.
 	userRepo          database.UserRepository   // Interface for updating user information.
 	suggestionManager *suggestions.Manager      // Manages the meme suggestion workflow.
+	adminChecker      *auth.AdminChecker        // Add AdminChecker
 }
 
 // NewMessageHandler creates and initializes a new MessageHandler instance.
@@ -70,13 +72,19 @@ func NewMessageHandler(
 	actionLogger database.UserActionLogger,
 	userRepo database.UserRepository,
 	suggestionManager *suggestions.Manager,
+	adminChecker *auth.AdminChecker, // Accept AdminChecker
 ) *MessageHandler {
+	if adminChecker == nil {
+		// If AdminChecker is essential, consider logging a fatal error or returning an error
+		log.Fatal("MessageHandler: Admin checker dependency is nil")
+	}
 	h := &MessageHandler{
 		channelID:         channelID,
 		postLogger:        postLogger,
 		actionLogger:      actionLogger,
 		userRepo:          userRepo,
 		suggestionManager: suggestionManager,
+		adminChecker:      adminChecker, // Store AdminChecker
 	}
 	// Initialize commands - Descriptions will be localized on demand (e.g., in /help handler)
 	h.commands = []Command{

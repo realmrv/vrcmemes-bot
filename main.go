@@ -7,16 +7,17 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"vrcmemes-bot/internal/auth"
 	"vrcmemes-bot/internal/config"
 	database2 "vrcmemes-bot/internal/database"
 	"vrcmemes-bot/internal/handlers"
 	"vrcmemes-bot/internal/locales"
+	"vrcmemes-bot/internal/suggestions"
+
+	telegoBot "vrcmemes-bot/bot"
 
 	sentry "github.com/getsentry/sentry-go"
 	telego "github.com/mymmrac/telego"
-
-	telegoBot "vrcmemes-bot/bot"
-	"vrcmemes-bot/internal/suggestions"
 	// _ "go.uber.org/automaxprocs" // Uncomment if needed
 )
 
@@ -85,23 +86,32 @@ func main() {
 		log.Fatalf("Failed to create telego bot: %v", err)
 	}
 
-	// 2. Create the suggestion manager
+	// 2. Create the Admin Checker
+	adminChecker, err := auth.NewAdminChecker(bot, cfg.ChannelID)
+	if err != nil {
+		sentry.CaptureException(err)
+		log.Fatalf("Failed to create admin checker: %v", err)
+	}
+
+	// 3. Create the suggestion manager
 	suggestionManager := suggestions.NewManager(
 		bot,
 		suggestionRepo, // Pass the specific suggestion repository
-		cfg.ChannelID,
+		cfg.ChannelID,  // Keep channel ID here for now, maybe refactor manager later
+		adminChecker,   // Pass admin checker
 	)
 
-	// 3. Create message handler with dependencies
+	// 4. Create message handler with dependencies
 	messageHandler := handlers.NewMessageHandler(
-		cfg.ChannelID,
+		cfg.ChannelID,    // Keep channel ID here for caption logic etc.
 		postLogger,       // Pass the specific post logger
 		userActionLogger, // Pass the specific action logger
 		userRepo,         // Pass the specific user repository
 		suggestionManager,
+		adminChecker, // Pass admin checker
 	)
 
-	// 4. Create the bot wrapper
+	// 5. Create the bot wrapper
 	appBot, err := telegoBot.New(bot, cfg.Debug, messageHandler)
 	if err != nil {
 		sentry.CaptureException(err)

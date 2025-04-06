@@ -49,21 +49,22 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 
 	// If not waiting for caption, proceed with admin check and potential direct posting
 	// --- Admin Check ---
-	isAdmin, err := h.checkAdmin(ctx, userID)
+	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID) // Use checker method
 	if err != nil {
-		// If checkAdmin failed significantly (e.g., manager nil), send generic error
-		if errors.Is(err, errors.New("suggestion manager not initialized")) {
+		// Handle the error from IsAdmin appropriately
+		if errors.Is(err, errors.New("failed to get chat member info")) {
+			log.Printf("[HandleText User:%d] Error checking admin status: %v", userID, err)
 			errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
 			return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 		}
-		// Otherwise, assume non-admin
+		// Other unexpected errors, assume non-admin
+		log.Printf("[HandleText User:%d] Unexpected error during admin check: %v. Assuming non-admin.", userID, err)
 		isAdmin = false
 	}
 
 	if !isAdmin {
 		log.Printf("[HandleText User:%d] Non-admin attempted to send text directly.", userID)
 		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
-		// Don't record activity for failed attempts
 		return h.sendError(ctx, bot, chatID, errors.New(msg))
 	}
 	// --- End Admin Check ---
@@ -130,21 +131,22 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 
 	// Check admin rights before posting photo to channel
 	userID := message.From.ID
-	isAdmin, err := h.checkAdmin(ctx, userID) // Use helper
+	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID) // Use checker method
 	if err != nil {
-		// If checkAdmin failed significantly, send generic error
-		if errors.Is(err, errors.New("suggestion manager not initialized")) {
+		// Handle the error from IsAdmin appropriately
+		if errors.Is(err, errors.New("failed to get chat member info")) {
+			log.Printf("[HandlePhoto User:%d] Error checking admin status: %v", userID, err)
 			errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
 			return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 		}
-		// Otherwise, assume non-admin
+		// Other unexpected errors, assume non-admin
+		log.Printf("[HandlePhoto User:%d] Unexpected error during admin check: %v. Assuming non-admin.", userID, err)
 		isAdmin = false
 	}
 
 	if !isAdmin {
 		log.Printf("[HandlePhoto User:%d] Non-admin attempted to send photo directly.", userID)
 		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
-		// Don't record activity
 		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
 	}
 

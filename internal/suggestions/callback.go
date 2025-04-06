@@ -59,12 +59,12 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 
 	log.Printf("[CallbackQuery] Parsed: Admin=%d, SugID=%s, Action=%s, Index=%d", adminID, suggestionIDHex, action, currentIndex)
 
-	isAdmin, err := m.IsAdmin(ctx, adminID)
+	isAdmin, err := m.adminChecker.IsAdmin(ctx, adminID)
 	if err != nil {
 		log.Printf("[CallbackQuery] Error checking admin status for user %d: %v", adminID, err)
 		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
 		_ = m.answerCallbackQuery(ctx, query.ID, errorMsg, true)
-		return true, err
+		return true, fmt.Errorf("callback admin check failed for user %d: %w", adminID, err)
 	}
 	if !isAdmin {
 		log.Printf("[CallbackQuery] User %d is not admin, ignoring review action.", adminID)

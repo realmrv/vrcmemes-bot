@@ -9,6 +9,7 @@ import (
 	"strings"
 	"vrcmemes-bot/internal/locales"
 
+	// Add import for bot package
 	// "time" // time is not used directly in this file after logger refactoring
 
 	"github.com/mymmrac/telego"
@@ -29,7 +30,7 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, messa
 
 	// Placeholder: Determine if the user is an admin (requires implementation)
 	// Let's assume checkAdmin is the way to go, even if it's false for start now.
-	isAdmin, _ := h.checkAdmin(ctx, message.From.ID) // Use helper, ignore error for now
+	isAdmin, _ := h.adminChecker.IsAdmin(ctx, message.From.ID) // Use checker method
 
 	// Record activity (UpdateUser + LogUserAction combined)
 	h.recordUserActivity(ctx, message.From, ActionCommandStart, isAdmin, map[string]interface{}{
@@ -49,7 +50,7 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 	localizer := h.getLocalizer(message.From) // Use helper
 
 	// Check if the user is an admin
-	isAdmin, _ := h.checkAdmin(ctx, userID) // Use helper, ignore error as checkAdmin logs it
+	isAdmin, _ := h.adminChecker.IsAdmin(ctx, userID) // Use checker method
 	// Log admin status check result for debugging /help specifically
 	log.Printf("[Cmd:help User:%d] Admin status check result: %t", userID, isAdmin)
 
@@ -109,7 +110,7 @@ func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, mess
 	}, nil)
 
 	// Check admin status (even if not used by logic, good to record)
-	isAdmin, _ := h.checkAdmin(ctx, message.From.ID)
+	isAdmin, _ := h.adminChecker.IsAdmin(ctx, message.From.ID) // Use checker method
 
 	// Record activity
 	h.recordUserActivity(ctx, message.From, ActionCommandStatus, isAdmin, map[string]interface{}{
@@ -136,7 +137,7 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 	}, nil)
 
 	// Check admin status (even if not used by logic, good to record)
-	isAdmin, _ := h.checkAdmin(ctx, message.From.ID)
+	isAdmin, _ := h.adminChecker.IsAdmin(ctx, message.From.ID) // Use checker method
 
 	// Record activity
 	h.recordUserActivity(ctx, message.From, ActionCommandVersion, isAdmin, map[string]interface{}{
@@ -174,18 +175,16 @@ func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, mess
 	userID := message.From.ID
 
 	// --- Admin Check ---
-	isAdmin, err := h.checkAdmin(ctx, userID) // Use helper
+	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID) // Use checker method
 	if err != nil {
-		// checkAdmin already logged the error. We might want to report to Sentry here.
 		// sentry.CaptureException(fmt.Errorf("admin check failed for /review user %d: %w", userID, err))
-		// Decide if we need to send an error message if the check itself failed (e.g., manager nil)
-		if errors.Is(err, errors.New("suggestion manager not initialized")) { // Example check
+		if errors.Is(err, errors.New("failed to get chat member info")) { // Check for the specific error from IsAdmin
+			log.Printf("[Cmd:review User:%d] Error checking admin status: %v", userID, err)
 			localizer := h.getLocalizer(message.From)
 			errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
-			return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg)) // Return the generic error message
+			return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 		}
-		// If it was just a DB error or similar during IsAdmin, maybe we don't send error to user?
-		// For now, let's assume non-admin if check failed for reasons other than nil manager.
+		log.Printf("[Cmd:review User:%d] Unexpected error during admin check: %v. Assuming non-admin.", userID, err)
 		isAdmin = false
 	}
 
@@ -223,24 +222,6 @@ func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, mess
 }
 
 // --- Helper Functions ---
-
-// checkAdmin checks if the user is an admin using the suggestion manager.
-// It returns the admin status and any error encountered during the check.
-// It logs warnings/errors internally.
-func (h *MessageHandler) checkAdmin(ctx context.Context, userID int64) (isAdmin bool, err error) {
-	if h.suggestionManager == nil {
-		log.Printf("[AdminCheck User:%d] Warning: Suggestion manager is nil", userID)
-		// Return false and an error to indicate the check couldn't be performed reliably.
-		return false, errors.New("suggestion manager not initialized")
-	}
-	isAdmin, err = h.suggestionManager.IsAdmin(ctx, userID)
-	if err != nil {
-		log.Printf("[AdminCheck User:%d] Error checking admin status: %v. Assuming non-admin.", userID, err)
-		// Return false and the original error for potential upstream logging (e.g., Sentry)
-		return false, err
-	}
-	return isAdmin, nil
-}
 
 // getLocalizer creates a localizer instance based on the user's language preference.
 // Falls back to the default language if the user or their language code is unavailable.

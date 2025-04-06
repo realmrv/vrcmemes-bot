@@ -20,14 +20,17 @@ func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, mes
 	localizer := h.getLocalizer(message.From) // Use helper
 
 	// --- Admin Check ---
-	isAdmin, err := h.checkAdmin(ctx, userID)
+	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID) // Use checker method
 	if err != nil {
-		// If checkAdmin failed significantly, send generic error
-		if errors.Is(err, errors.New("suggestion manager not initialized")) {
+		// Handle the error from IsAdmin appropriately
+		if errors.Is(err, errors.New("failed to get chat member info")) {
+			log.Printf("[Cmd:caption User:%d] Error checking admin status: %v", userID, err)
 			errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+			// Consider returning a more specific error?
 			return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 		}
-		// Otherwise, assume non-admin
+		// Other unexpected errors, assume non-admin
+		log.Printf("[Cmd:caption User:%d] Unexpected error during admin check: %v. Assuming non-admin.", userID, err)
 		isAdmin = false
 	}
 
@@ -56,17 +59,17 @@ func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, mes
 func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
 	userID := message.From.ID
 	// --- Admin Check ---
-	isAdmin := false
-	if h.suggestionManager != nil {
-		var checkErr error
-		isAdmin, checkErr = h.suggestionManager.IsAdmin(ctx, userID)
-		if checkErr != nil {
-			log.Printf("Error checking admin status for user %d in HandleShowCaption: %v. Assuming non-admin.", userID, checkErr)
-			isAdmin = false
+	isAdmin, checkErr := h.adminChecker.IsAdmin(ctx, userID) // Use checker method
+	if checkErr != nil {
+		// Handle the error from IsAdmin
+		if errors.Is(checkErr, errors.New("failed to get chat member info")) {
+			log.Printf("[Cmd:showcaption User:%d] Error checking admin status: %v. Assuming non-admin.", userID, checkErr)
+		} else {
+			log.Printf("[Cmd:showcaption User:%d] Unexpected error during admin check: %v. Assuming non-admin.", userID, checkErr)
 		}
-	} else {
-		log.Printf("Warning: Suggestion manager is nil in HandleShowCaption, cannot check admin status for user %d", userID)
+		isAdmin = false // Assume non-admin on any error
 	}
+
 	if !isAdmin {
 		log.Printf("User %d (not admin) attempted to use /showcaption.", userID)
 		lang := locales.DefaultLanguage
@@ -112,14 +115,17 @@ func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot *telego.Bot
 	localizer := h.getLocalizer(message.From) // Use helper
 
 	// --- Admin Check ---
-	isAdmin, err := h.checkAdmin(ctx, userID)
+	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID) // Use checker method
 	if err != nil {
-		// If checkAdmin failed significantly, send generic error
-		if errors.Is(err, errors.New("suggestion manager not initialized")) {
+		// Handle the error from IsAdmin appropriately
+		if errors.Is(err, errors.New("failed to get chat member info")) {
+			log.Printf("[Cmd:clearcaption User:%d] Error checking admin status: %v", userID, err)
 			errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+			// Consider returning a more specific error?
 			return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 		}
-		// Otherwise, assume non-admin
+		// Other unexpected errors, assume non-admin
+		log.Printf("[Cmd:clearcaption User:%d] Unexpected error during admin check: %v. Assuming non-admin.", userID, err)
 		isAdmin = false
 	}
 

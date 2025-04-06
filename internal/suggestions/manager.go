@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
+	"vrcmemes-bot/internal/auth"
 	"vrcmemes-bot/internal/database"
 	"vrcmemes-bot/internal/database/models"
 	"vrcmemes-bot/internal/locales"
@@ -27,6 +27,7 @@ type Manager struct {
 	bot             *telego.Bot
 	targetChannelID int64
 	repo            database.SuggestionRepository
+	adminChecker    *auth.AdminChecker
 
 	adminCache      []telego.ChatMember
 	adminCacheTime  time.Time
@@ -38,7 +39,7 @@ type Manager struct {
 }
 
 // NewManager creates a new suggestion manager.
-func NewManager(bot *telego.Bot, repo database.SuggestionRepository, targetChannelID int64) *Manager {
+func NewManager(bot *telego.Bot, repo database.SuggestionRepository, targetChannelID int64, adminChecker *auth.AdminChecker) *Manager {
 	if bot == nil {
 		log.Fatal("Suggestion Manager: Telego bot instance is nil")
 	}
@@ -48,6 +49,9 @@ func NewManager(bot *telego.Bot, repo database.SuggestionRepository, targetChann
 	if targetChannelID == 0 {
 		log.Fatal("Suggestion Manager: Target channel ID is not set")
 	}
+	if adminChecker == nil {
+		log.Fatal("Suggestion Manager: Admin checker is nil")
+	}
 
 	return &Manager{
 		userStates:            make(map[int64]UserState),
@@ -55,6 +59,7 @@ func NewManager(bot *telego.Bot, repo database.SuggestionRepository, targetChann
 		bot:                   bot,
 		targetChannelID:       targetChannelID,
 		repo:                  repo,
+		adminChecker:          adminChecker,
 		adminCache:            make([]telego.ChatMember, 0),
 		adminCacheTTL:         5 * time.Minute,
 		reviewSessions:        make(map[int64]*ReviewSession),
@@ -283,28 +288,4 @@ func (m *Manager) DeleteSuggestion(ctx context.Context, id primitive.ObjectID) e
 	}
 	log.Printf("Deleted suggestion from DB with ID %s", id.Hex())
 	return nil
-}
-
-// IsAdmin checks if a user is an administrator or creator in the target channel.
-func (m *Manager) IsAdmin(ctx context.Context, userID int64) (bool, error) {
-	member, err := m.bot.GetChatMember(ctx, &telego.GetChatMemberParams{
-		ChatID: telego.ChatID{ID: m.targetChannelID},
-		UserID: userID,
-	})
-	if err != nil {
-		// Log the error but don't necessarily treat non-existence as an error for IsAdmin check
-		// A user not found in the channel is simply not an admin.
-		// However, API errors (network, permissions) should be returned.
-		if strings.Contains(strings.ToLower(err.Error()), "user not found") { // More robust check for "user not found"
-			return false, nil
-		}
-		// Log other potential errors
-		log.Printf("[IsAdmin] Error checking chat member %d in channel %d: %v. Returning false.", userID, m.targetChannelID, err)
-		return false, fmt.Errorf("failed to get chat member info: %w", err)
-	}
-
-	status := member.MemberStatus()
-
-	isAdmin := status == telego.MemberStatusCreator || status == telego.MemberStatusAdministrator
-	return isAdmin, nil
 }
