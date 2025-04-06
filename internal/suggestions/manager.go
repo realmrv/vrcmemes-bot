@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 	"vrcmemes-bot/internal/auth"
@@ -14,6 +15,12 @@ import (
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+const (
+	// Define constants used in this file
+	mediaGroupProcessDelay = 3 * time.Second // Delay for processing suggestion/feedback media groups
+	maxMediaGroupSize      = 10              // Max items in suggestion/feedback media groups
 )
 
 // Manager handles the suggestion logic and storage.
@@ -36,15 +43,25 @@ type Manager struct {
 
 	reviewSessions      map[int64]*ReviewSession
 	reviewSessionsMutex sync.RWMutex
+
+	// feedbackRepo is needed to save feedback in handleFeedbackContent
+	feedbackRepo database.FeedbackRepository
+
+	// Temporary storage for feedback media groups
+	feedbackMediaGroups   map[string][]telego.Message
+	muFeedbackMediaGroups sync.Mutex
 }
 
 // NewManager creates a new suggestion manager.
-func NewManager(bot *telego.Bot, repo database.SuggestionRepository, targetChannelID int64, adminChecker *auth.AdminChecker) *Manager {
+func NewManager(bot *telego.Bot, repo database.SuggestionRepository, targetChannelID int64, adminChecker *auth.AdminChecker, feedbackRepo database.FeedbackRepository) *Manager {
 	if bot == nil {
 		log.Fatal("Suggestion Manager: Telego bot instance is nil")
 	}
 	if repo == nil {
 		log.Fatal("Suggestion Manager: Suggestion repository is nil")
+	}
+	if feedbackRepo == nil {
+		log.Fatal("Suggestion Manager: Feedback repository is nil")
 	}
 	if targetChannelID == 0 {
 		log.Fatal("Suggestion Manager: Target channel ID is not set")
@@ -56,9 +73,11 @@ func NewManager(bot *telego.Bot, repo database.SuggestionRepository, targetChann
 	return &Manager{
 		userStates:            make(map[int64]UserState),
 		suggestionMediaGroups: make(map[string][]telego.Message),
+		feedbackMediaGroups:   make(map[string][]telego.Message),
 		bot:                   bot,
 		targetChannelID:       targetChannelID,
 		repo:                  repo,
+		feedbackRepo:          feedbackRepo, // Store feedback repo
 		adminChecker:          adminChecker,
 		adminCache:            make([]telego.ChatMember, 0),
 		adminCacheTTL:         5 * time.Minute,
@@ -130,54 +149,55 @@ func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (proc
 	currentState := m.GetUserState(userID)
 	log.Printf("[Suggest Manager HandleMessage User:%d] Current state: %v", userID, currentState)
 
-	if currentState != StateAwaitingSuggestion {
-		log.Printf("[Suggest Manager HandleMessage User:%d] State is not AwaitingSuggestion, returning processed=false", userID)
+	switch currentState {
+	case StateAwaitingSuggestion:
+		log.Printf("[Suggest Manager HandleMessage User:%d] Handling as suggestion...", userID)
+		return m.handleSuggestionContent(ctx, update.Message)
+	case StateAwaitingFeedback:
+		log.Printf("[Suggest Manager HandleMessage User:%d] Handling as feedback...", userID)
+		// Pass the feedback repository needed by handleFeedbackContent
+		return m.handleFeedbackContent(ctx, update.Message)
+	default:
+		log.Printf("[Suggest Manager HandleMessage User:%d] State is not AwaitingSuggestion or AwaitingFeedback, returning processed=false", userID)
 		return false, nil
 	}
+}
 
-	// If state IS StateAwaitingSuggestion, proceed with handling
-	log.Printf("[Suggest Manager HandleMessage User:%d] State is AwaitingSuggestion, proceeding...", userID)
-
-	message := update.Message
+// handleSuggestionContent handles a message when the user is in StateAwaitingSuggestion.
+func (m *Manager) handleSuggestionContent(ctx context.Context, message *telego.Message) (processed bool, err error) {
+	userID := message.From.ID
 	chatID := message.Chat.ID
+	localizer := locales.NewLocalizer(locales.DefaultLanguage) // Assuming default lang for now
 
-	// Default to Russian
-	lang := locales.DefaultLanguage
-	if message.From.LanguageCode != "" {
-		// lang = message.From.LanguageCode
-	}
-	localizer := locales.NewLocalizer(lang)
-
-	// Handle Media Group
+	// Handle Media Group for Suggestion
 	if message.MediaGroupID != "" {
+		// Only handle photos in suggestion media groups for now
 		if len(message.Photo) == 0 {
-			log.Printf("[HandleMessage] Received non-photo message part of media group %s from user %d. Ignoring.", message.MediaGroupID, userID)
-			return true, nil
+			log.Printf("[HandleSuggestionContent] Received non-photo message part of media group %s from user %d. Ignoring.", message.MediaGroupID, userID)
+			return true, nil // Processed (ignored), state remains awaiting
 		}
 
 		m.addMessageToSuggestionGroup(*message)
-
 		group := m.getSuggestionGroup(message.MediaGroupID)
-		if len(group) == 1 {
-			log.Printf("[HandleMessage] Started media group timer for group %s, user %d", message.MediaGroupID, userID)
-			msg := locales.GetMessage(localizer, "MsgSuggestionMediaGroupPartReceived", nil, nil)
-			_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
-			if sendErr != nil {
-				log.Printf("[HandleMessage] Error sending media group part received confirmation to user %d: %v", userID, sendErr)
-			}
 
+		if len(group) == 1 {
+			log.Printf("[HandleSuggestionContent] Started suggestion media group timer for group %s, user %d", message.MediaGroupID, userID)
+			msg := locales.GetMessage(localizer, "MsgSuggestionMediaGroupPartReceived", nil, nil)
+			_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
+
+			// Use background context for timer function
 			bgCtx := context.Background()
-			time.AfterFunc(3*time.Second, func() {
+			time.AfterFunc(mediaGroupProcessDelay, func() {
 				m.processSuggestionMediaGroup(bgCtx, userID, chatID, message.MediaGroupID)
 			})
 		}
-		return true, nil
+		return true, nil // Processed, state remains awaiting until timer fires
 	}
 
-	// Handle Single Photo
+	// Handle Single Photo for Suggestion
 	if message.Photo != nil && len(message.Photo) > 0 {
 		fileIDs := []string{message.Photo[len(message.Photo)-1].FileID}
-		caption := message.Caption
+		caption := message.Caption // User-provided caption for admin review
 
 		suggestionForDB := &models.Suggestion{
 			SuggesterID: userID,
@@ -188,33 +208,137 @@ func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (proc
 			FileIDs:     fileIDs,
 			Caption:     caption,
 			Status:      string(StatusPending),
+			SubmittedAt: time.Now(),
 		}
 		err = m.AddSuggestion(ctx, suggestionForDB)
 		if err != nil {
-			log.Printf("[HandleMessage] Error saving single photo suggestion for user %d: %v", userID, err)
+			log.Printf("[HandleSuggestionContent] Error saving single photo suggestion for user %d: %v", userID, err)
 			errorMsg := locales.GetMessage(localizer, "MsgSuggestInternalProcessingError", nil, nil)
-			_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
-			if sendErr != nil {
-				log.Printf("[HandleMessage] Error sending internal error message to user %d: %v", userID, sendErr)
-			}
-			m.SetUserState(userID, StateIdle)
-			return true, err
+			_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
+			m.SetUserState(userID, StateIdle) // Reset state on error
+			return true, err                  // Processed (with error)
 		}
 
-		m.SetUserState(userID, StateIdle)
+		m.SetUserState(userID, StateIdle) // Reset state after success
 		confirmationMsg := locales.GetMessage(localizer, "MsgSuggestionReceivedConfirmation", nil, nil)
 		_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), confirmationMsg))
 		if err != nil {
-			log.Printf("[HandleMessage] Error sending single photo confirmation to user %d: %v", userID, err)
+			log.Printf("[HandleSuggestionContent] Error sending single photo confirmation to user %d: %v", userID, err)
 		}
-		return true, nil
+		return true, nil // Processed successfully
 	}
 
-	// Wrong Message Type
-	log.Printf("[HandleMessage] User %d sent non-photo/non-media-group message while awaiting suggestion.", userID)
+	// Wrong Message Type for Suggestion
+	log.Printf("[HandleSuggestionContent] User %d sent non-photo/non-media-group message while awaiting suggestion.", userID)
 	errorMsg := locales.GetMessage(localizer, "MsgSuggestionRequiresPhoto", nil, nil)
 	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
-	return true, err
+	// Do not reset state here, let the user try again
+	return true, err // Processed (with error message sent)
+}
+
+// extractFeedbackContent extracts text, photo/video IDs from a single feedback message.
+func extractFeedbackContent(message *telego.Message) (text string, photoIDs []string, videoIDs []string) {
+	photoIDs = []string{}
+	videoIDs = []string{}
+	text = ""
+
+	if message.Text != "" {
+		text = message.Text
+	}
+
+	// Extract photo
+	if message.Photo != nil && len(message.Photo) > 0 {
+		bestPhoto := message.Photo[0]
+		for _, p := range message.Photo {
+			if p.FileSize > bestPhoto.FileSize {
+				bestPhoto = p
+			}
+		}
+		photoIDs = append(photoIDs, bestPhoto.FileID)
+		if text == "" && message.Caption != "" { // Use caption as text if text is empty
+			text = message.Caption
+		}
+	}
+
+	// Extract video
+	if message.Video != nil {
+		videoIDs = append(videoIDs, message.Video.FileID)
+		if text == "" && message.Caption != "" { // Use caption as text if text is empty
+			text = message.Caption
+		}
+	}
+	return text, photoIDs, videoIDs
+}
+
+// handleFeedbackContent handles a message when the user is in StateAwaitingFeedback.
+// Refactored to extract content parsing.
+func (m *Manager) handleFeedbackContent(ctx context.Context, message *telego.Message) (processed bool, err error) {
+	userID := message.From.ID
+	chatID := message.Chat.ID
+	localizer := locales.NewLocalizer(locales.DefaultLanguage) // Assuming default lang for now
+	mediaGroupID := message.MediaGroupID
+
+	// --- Handle Media Group for Feedback ---
+	if mediaGroupID != "" {
+		msgs := m.addMessageToFeedbackGroup(*message) // Assuming addMessageToFeedbackGroup exists/is added
+		if len(msgs) == 1 {
+			// Start timer only on the first message of the group
+			log.Printf("[HandleFeedbackContent] Started feedback media group timer for group %s, user %d", mediaGroupID, userID)
+			msg := locales.GetMessage(localizer, "MsgFeedbackMediaGroupPartReceived", nil, nil)
+			_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
+
+			bgCtx := context.Background()
+			time.AfterFunc(mediaGroupProcessDelay, func() {
+				m.processFeedbackMediaGroup(bgCtx, userID, chatID, mediaGroupID)
+			})
+		}
+		return true, nil // Media group message stored, wait for timer
+	}
+	// --- End Media Group Handling ---
+
+	// --- Extract Content from Single Message ---
+	feedbackText, photoIDs, videoIDs := extractFeedbackContent(message)
+
+	// --- Validate Content ---
+	if feedbackText == "" && len(photoIDs) == 0 && len(videoIDs) == 0 {
+		log.Printf("[HandleFeedbackContent] User %d sent empty message while awaiting feedback.", userID)
+		errorMsg := locales.GetMessage(localizer, "MsgFeedbackRequiresContent", nil, nil)
+		_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
+		// Don't reset state, let them try again
+		return true, err // Processed (with error sent)
+	}
+
+	// --- Save Feedback ---
+	feedbackForDB := &models.Feedback{
+		UserID:         userID,
+		Username:       message.From.Username,
+		FirstName:      message.From.FirstName,
+		Text:           feedbackText,
+		PhotoIDs:       photoIDs,
+		VideoIDs:       videoIDs,
+		MediaGroupID:   "", // Empty for single messages
+		OriginalChatID: chatID,
+		MessageID:      message.MessageID,
+		// SubmittedAt will be set by the repository
+	}
+
+	err = m.feedbackRepo.AddFeedback(ctx, feedbackForDB)
+	if err != nil {
+		log.Printf("[HandleFeedbackContent] Error saving feedback for user %d: %v", userID, err)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
+		m.SetUserState(userID, StateIdle) // Reset state on error
+		return true, err                  // Processed (with error)
+	}
+
+	// --- Confirm and Reset State ---
+	m.SetUserState(userID, StateIdle) // Reset state after successful submission
+	confirmationMsg := locales.GetMessage(localizer, "MsgFeedbackReceivedConfirmation", nil, nil)
+	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), confirmationMsg))
+	if err != nil {
+		log.Printf("[HandleFeedbackContent] Error sending feedback confirmation to user %d: %v", userID, err)
+	}
+	return true, nil // Processed successfully
 }
 
 // SetUserState sets the state for a given user.
@@ -302,4 +426,133 @@ func (m *Manager) ProcessSuggestionCallback(ctx context.Context, query telego.Ca
 	// Note: HandleCallbackQuery might need adjustments if its signature or behavior
 	// doesn't perfectly match the interface requirements (e.g., error handling).
 	return m.HandleCallbackQuery(ctx, query)
+}
+
+// --- Helper functions for Feedback Media Groups (similar to suggestion ones) ---
+
+// addMessageToFeedbackGroup adds a message to the temporary storage for feedback media groups.
+func (m *Manager) addMessageToFeedbackGroup(message telego.Message) []telego.Message {
+	m.muFeedbackMediaGroups.Lock()
+	defer m.muFeedbackMediaGroups.Unlock()
+
+	group, exists := m.feedbackMediaGroups[message.MediaGroupID]
+	if !exists {
+		group = make([]telego.Message, 0, 10) // Max 10 media items
+	}
+
+	// Avoid duplicates and limit size
+	found := false
+	for _, msg := range group {
+		if msg.MessageID == message.MessageID {
+			found = true
+			break
+		}
+	}
+	if !found && len(group) < maxMediaGroupSize { // Reuse constant
+		group = append(group, message)
+		// Sort by message ID to maintain order
+		sort.Slice(group, func(i, j int) bool {
+			return group[i].MessageID < group[j].MessageID
+		})
+		m.feedbackMediaGroups[message.MediaGroupID] = group
+		log.Printf("[Feedback Media Group Store Group:%s] Added message %d. Total: %d", message.MediaGroupID, message.MessageID, len(group))
+	} else if len(group) >= maxMediaGroupSize {
+		log.Printf("[Feedback Media Group Store Group:%s] Group limit reached, message %d dropped.", message.MediaGroupID, message.MessageID)
+	}
+
+	return group
+}
+
+// getFeedbackGroup retrieves the collected messages for a feedback media group.
+func (m *Manager) getFeedbackGroup(groupID string) []telego.Message {
+	m.muFeedbackMediaGroups.Lock()
+	defer m.muFeedbackMediaGroups.Unlock()
+	// Return a copy to avoid race conditions if the caller modifies it
+	group := m.feedbackMediaGroups[groupID]
+	groupCopy := make([]telego.Message, len(group))
+	copy(groupCopy, group)
+	return groupCopy
+}
+
+// deleteFeedbackGroup removes a feedback media group from temporary storage.
+func (m *Manager) deleteFeedbackGroup(groupID string) {
+	m.muFeedbackMediaGroups.Lock()
+	defer m.muFeedbackMediaGroups.Unlock()
+	delete(m.feedbackMediaGroups, groupID)
+	log.Printf("[Feedback Media Group Cleanup Group:%s] Deleted group from storage.", groupID)
+}
+
+// processFeedbackMediaGroup processes a collected feedback media group after the timer expires.
+func (m *Manager) processFeedbackMediaGroup(ctx context.Context, userID, chatID int64, groupID string) {
+	log.Printf("[ProcessFeedbackMediaGroup Group:%s User:%d] Timer fired. Processing group.", groupID, userID)
+	msgs := m.getFeedbackGroup(groupID)
+	m.deleteFeedbackGroup(groupID) // Clean up immediately
+
+	if len(msgs) == 0 {
+		log.Printf("[ProcessFeedbackMediaGroup Group:%s User:%d] No messages found for group after timer. Aborting.", groupID, userID)
+		m.SetUserState(userID, StateIdle) // Reset state
+		return
+	}
+
+	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+	photoIDs := []string{}
+	videoIDs := []string{}
+	feedbackText := "" // Caption from the first message is used
+
+	// Extract file IDs and caption from the first message
+	firstMessage := msgs[0]
+	if firstMessage.Caption != "" {
+		feedbackText = firstMessage.Caption
+	}
+
+	for _, msg := range msgs {
+		if msg.Photo != nil && len(msg.Photo) > 0 {
+			bestPhoto := msg.Photo[0]
+			for _, p := range msg.Photo {
+				if p.FileSize > bestPhoto.FileSize {
+					bestPhoto = p
+				}
+			}
+			photoIDs = append(photoIDs, bestPhoto.FileID)
+		} else if msg.Video != nil {
+			videoIDs = append(videoIDs, msg.Video.FileID)
+		}
+	}
+
+	// Should not happen if we filtered earlier, but double-check
+	if len(photoIDs) == 0 && len(videoIDs) == 0 {
+		log.Printf("[ProcessFeedbackMediaGroup Group:%s User:%d] No valid media found in group. Aborting.", groupID, userID)
+		m.SetUserState(userID, StateIdle) // Reset state
+		return
+	}
+
+	feedbackForDB := &models.Feedback{
+		UserID:         userID,
+		Username:       firstMessage.From.Username,
+		FirstName:      firstMessage.From.FirstName,
+		Text:           feedbackText,
+		PhotoIDs:       photoIDs,
+		VideoIDs:       videoIDs,
+		MediaGroupID:   groupID,
+		SubmittedAt:    time.Now(),
+		OriginalChatID: chatID,
+		MessageID:      firstMessage.MessageID, // Use first message ID for reference
+	}
+
+	err := m.feedbackRepo.AddFeedback(ctx, feedbackForDB)
+	if err != nil {
+		log.Printf("[ProcessFeedbackMediaGroup Group:%s User:%d] Error saving feedback: %v", groupID, userID, err)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
+		// State is already Idle if saving failed within handleFeedbackContent, but set again for clarity
+		m.SetUserState(userID, StateIdle)
+		return
+	}
+
+	m.SetUserState(userID, StateIdle) // Reset state after successful processing
+	confirmationMsg := locales.GetMessage(localizer, "MsgFeedbackReceivedConfirmation", nil, nil)
+	_, err = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), confirmationMsg))
+	if err != nil {
+		log.Printf("[ProcessFeedbackMediaGroup Group:%s User:%d] Error sending confirmation: %v", groupID, userID, err)
+	}
 }

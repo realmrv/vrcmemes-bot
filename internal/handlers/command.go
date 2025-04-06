@@ -8,11 +8,13 @@ import (
 	"os"
 	"strings"
 	"vrcmemes-bot/internal/locales"
+	"vrcmemes-bot/internal/suggestions"
 
 	// Add import for bot package
 	// "time" // time is not used directly in this file after logger refactoring
 
 	"github.com/mymmrac/telego"
+	tu "github.com/mymmrac/telego/telegoutil"
 
 	"github.com/nicksnyder/go-i18n/v2/i18n" // Correct import for i18n.Localizer
 )
@@ -61,13 +63,13 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 	for _, cmd := range h.commands {
 		showCommand := false
 		if isAdmin {
-			// Admins see all commands except /suggest
-			if cmd.Command != "suggest" {
+			// Admins see all commands except /suggest and /feedback
+			if cmd.Command != "suggest" && cmd.Command != "feedback" {
 				showCommand = true
 			}
 		} else {
-			// Non-admins see only /start and /suggest
-			if cmd.Command == "start" || cmd.Command == "suggest" {
+			// Non-admins see only /start, /suggest, and /feedback
+			if cmd.Command == "start" || cmd.Command == "suggest" || cmd.Command == "feedback" {
 				showCommand = true
 			}
 		}
@@ -152,17 +154,41 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 // It constructs a telego.Update object and passes it to the suggestion manager's handler.
 // Errors during suggestion handling are logged, assuming the manager handles user feedback.
 func (h *MessageHandler) HandleSuggest(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	userID := message.From.ID
+	chatID := message.Chat.ID
+	localizer := h.getLocalizer(message.From)
+
+	// --- Admin Check: Prevent admins from using /suggest ---
+	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID)
+	if err != nil {
+		// Log error but proceed cautiously (treat as non-admin for check)
+		log.Printf("[Cmd:suggest User:%d] Error checking admin status: %v. Allowing command for now.", userID, err)
+		isAdmin = false // Assume non-admin if check fails, maybe allow suggest?
+	}
+	if isAdmin {
+		log.Printf("[Cmd:suggest User:%d] Admin attempted to use /suggest.", userID)
+		msg := locales.GetMessage(localizer, "MsgSuggestForUsersOnly", nil, nil)
+		return h.sendError(ctx, bot, chatID, errors.New(msg)) // Use sendError helper
+	}
+	// --- End Admin Check ---
+
+	// Check if already waiting for suggestion
+	if h.suggestionManager.GetUserState(userID) == suggestions.StateAwaitingSuggestion {
+		msg := locales.GetMessage(localizer, "MsgSuggestAlreadyWaitingForContent", nil, nil)
+		return h.sendError(ctx, bot, chatID, errors.New(msg))
+	}
+
 	// We need the full Update object for the manager's handler
 	// Construct a minimal Update containing the Message
 	update := telego.Update{Message: &message}
 
 	// Delegate the handling to the suggestion manager
-	err := h.suggestionManager.HandleSuggestCommand(ctx, update)
+	err = h.suggestionManager.HandleSuggestCommand(ctx, update)
 	if err != nil {
 		// The manager is expected to handle sending messages to the user on errors
 		// (e.g., user not subscribed, invalid format). We just log the error here
 		// if one occurs during the manager's processing.
-		log.Printf("[HandleSuggest] Error from suggestionManager.HandleSuggestCommand for user %d: %v", message.From.ID, err)
+		log.Printf("[HandleSuggest] Error from suggestionManager.HandleSuggestCommand for user %d: %v", userID, err)
 		// Potentially send to Sentry
 	}
 	// Return nil to prevent the main bot loop from sending a generic error message.
@@ -219,6 +245,58 @@ func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, mess
 		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
 		return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 	}
+}
+
+// HandleFeedback handles the /feedback command.
+// It initiates the feedback process by setting the user state to StateAwaitingFeedback
+// and prompting the user to send their feedback message.
+func (h *MessageHandler) HandleFeedback(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	userID := message.From.ID
+	chatID := message.Chat.ID
+	localizer := h.getLocalizer(message.From)
+
+	// --- Admin Check: Prevent admins from using /feedback ---
+	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID)
+	if err != nil {
+		// Log error but proceed cautiously (treat as non-admin for check)
+		log.Printf("[Cmd:feedback User:%d] Error checking admin status: %v. Allowing command for now.", userID, err)
+		isAdmin = false // Assume non-admin if check fails
+	}
+	if isAdmin {
+		log.Printf("[Cmd:feedback User:%d] Admin attempted to use /feedback.", userID)
+		msg := locales.GetMessage(localizer, "MsgFeedbackForUsersOnly", nil, nil)
+		return h.sendError(ctx, bot, chatID, errors.New(msg))
+	}
+	// --- End Admin Check ---
+
+	// Check if already waiting for feedback
+	if h.suggestionManager.GetUserState(userID) == suggestions.StateAwaitingFeedback {
+		msg := locales.GetMessage(localizer, "MsgFeedbackAlreadyWaiting", nil, nil)
+		_, err = bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
+		return err
+	}
+
+	// Set user state to awaiting feedback
+	h.suggestionManager.SetUserState(userID, suggestions.StateAwaitingFeedback)
+
+	// Send prompt message
+	promptMsg := locales.GetMessage(localizer, "MsgFeedbackPrompt", nil, nil)
+	_, err = bot.SendMessage(ctx, tu.Message(tu.ID(chatID), promptMsg))
+	if err != nil {
+		// Rollback state if sending prompt fails
+		h.suggestionManager.SetUserState(userID, suggestions.StateIdle)
+		log.Printf("Error sending feedback prompt to user %d: %v", userID, err)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_, _ = bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
+		return err
+	}
+
+	// Record activity
+	h.recordUserActivity(ctx, message.From, ActionCommandFeedback, false, map[string]interface{}{
+		"chat_id": chatID,
+	})
+
+	return nil
 }
 
 // --- Helper Functions ---

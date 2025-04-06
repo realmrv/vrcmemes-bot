@@ -19,6 +19,7 @@ type UserState string
 const (
 	StateIdle               UserState = ""                    // Default state
 	StateAwaitingSuggestion UserState = "awaiting_suggestion" // Bot is waiting for the user to send suggestion content
+	StateAwaitingFeedback   UserState = "awaiting_feedback"   // Bot is waiting for the user to send feedback content
 )
 
 // ReviewSession stores the state for an admin's review process.

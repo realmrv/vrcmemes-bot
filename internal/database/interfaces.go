@@ -54,6 +54,11 @@ type HandlerProvider interface {
 	// HandleVideo(ctx context.Context, bot *telego.Bot, message telego.Message) error // Placeholder for video
 }
 
+// FeedbackRepository defines the interface for feedback data operations.
+type FeedbackRepository interface {
+	AddFeedback(ctx context.Context, feedback *models.Feedback) error
+}
+
 // CallbackProcessor defines the interface for processing callback queries.
 type CallbackProcessor interface {
 	ProcessSuggestionCallback(ctx context.Context, query telego.CallbackQuery) (processed bool, err error)

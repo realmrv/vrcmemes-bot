@@ -266,5 +266,37 @@
   {
     "id": "MsgCaptionPrompt",
     "translation": "Введите подпись, которая будет добавлена к следующему посту:"
+  },
+  {
+    "id": "CmdFeedbackDesc",
+    "translation": "Отправить отзыв или предложение"
+  },
+  {
+    "id": "MsgFeedbackPrompt",
+    "translation": "Пожалуйста, отправьте ваш отзыв или предложение. Вы можете прикрепить до 10 фото/видео."
+  },
+  {
+    "id": "MsgFeedbackAlreadyWaiting",
+    "translation": "Я уже ожидаю ваш отзыв. Пожалуйста, отправьте его."
+  },
+  {
+    "id": "MsgFeedbackReceivedConfirmation",
+    "translation": "Спасибо за ваш отзыв!"
+  },
+  {
+    "id": "MsgFeedbackRequiresContent",
+    "translation": "Пожалуйста, отправьте текст отзыва или прикрепите медиафайл."
+  },
+  {
+    "id": "MsgFeedbackMediaGroupPartReceived",
+    "translation": "Получил часть медиа-группы для отзыва. Ожидаю остальное..."
+  },
+  {
+    "id": "MsgSuggestForUsersOnly",
+    "translation": "Эта команда предназначена только для подписчиков."
+  },
+  {
+    "id": "MsgFeedbackForUsersOnly",
+    "translation": "Администраторы не могут отправлять отзывы через эту команду."
   }
 ]

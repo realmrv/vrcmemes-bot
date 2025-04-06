@@ -39,11 +39,12 @@ type MessageHandler struct {
 	commands []Command
 
 	// Dependencies for database interactions and suggestion management.
-	postLogger        database.PostLogger       // Interface for logging published posts.
-	actionLogger      database.UserActionLogger // Interface for logging user actions.
-	userRepo          database.UserRepository   // Interface for updating user information.
-	suggestionManager *suggestions.Manager      // Manages the meme suggestion workflow.
-	adminChecker      *auth.AdminChecker        // Add AdminChecker
+	postLogger        database.PostLogger         // Interface for logging published posts.
+	actionLogger      database.UserActionLogger   // Interface for logging user actions.
+	userRepo          database.UserRepository     // Interface for updating user information.
+	suggestionManager *suggestions.Manager        // Manages the meme suggestion workflow.
+	adminChecker      *auth.AdminChecker          // Add AdminChecker
+	feedbackRepo      database.FeedbackRepository // Interface for saving feedback
 }
 
 // NewMessageHandler creates and initializes a new MessageHandler instance.
@@ -55,10 +56,14 @@ func NewMessageHandler(
 	userRepo database.UserRepository,
 	suggestionManager *suggestions.Manager,
 	adminChecker *auth.AdminChecker, // Accept AdminChecker
+	feedbackRepo database.FeedbackRepository, // Accept FeedbackRepository
 ) *MessageHandler {
 	if adminChecker == nil {
 		// If AdminChecker is essential, consider logging a fatal error or returning an error
 		log.Fatal("MessageHandler: Admin checker dependency is nil")
+	}
+	if feedbackRepo == nil {
+		log.Fatal("MessageHandler: Feedback repository dependency is nil")
 	}
 	h := &MessageHandler{
 		channelID:         channelID,
@@ -67,6 +72,7 @@ func NewMessageHandler(
 		userRepo:          userRepo,
 		suggestionManager: suggestionManager,
 		adminChecker:      adminChecker, // Store AdminChecker
+		feedbackRepo:      feedbackRepo, // Store FeedbackRepository
 	}
 	// Initialize commands - Descriptions will be localized on demand (e.g., in /help handler)
 	h.commands = []Command{
@@ -79,6 +85,7 @@ func NewMessageHandler(
 		{Command: "clearcaption", Description: "CmdClearCaptionDesc", Handler: h.HandleClearCaption},
 		{Command: "suggest", Description: "CmdSuggestDesc", Handler: h.HandleSuggest},
 		{Command: "review", Description: "CmdReviewDesc", Handler: h.HandleReview},
+		{Command: "feedback", Description: "CmdFeedbackDesc", Handler: h.HandleFeedback},
 		// TODO: Add other admin commands here if needed
 	}
 	return h

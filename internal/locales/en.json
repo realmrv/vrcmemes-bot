@@ -92,40 +92,40 @@
     "translation": "This feature is not implemented yet."
   },
   {
-      "id": "CmdStartDesc",
-      "translation": "Starts the bot"
+    "id": "CmdStartDesc",
+    "translation": "Starts the bot"
   },
   {
-      "id": "CmdHelpDesc",
-      "translation": "Shows this help message"
+    "id": "CmdHelpDesc",
+    "translation": "Shows this help message"
   },
   {
-      "id": "CmdStatusDesc",
-      "translation": "Shows bot status and your ID"
+    "id": "CmdStatusDesc",
+    "translation": "Shows bot status and your ID"
   },
   {
-      "id": "CmdVersionDesc",
-      "translation": "Shows the bot version"
+    "id": "CmdVersionDesc",
+    "translation": "Shows the bot version"
   },
   {
-      "id": "CmdCaptionDesc",
-      "translation": "Set or update the caption for the next photo group"
+    "id": "CmdCaptionDesc",
+    "translation": "Set or update the caption for the next photo group"
   },
   {
-      "id": "CmdShowCaptionDesc",
-      "translation": "Show the current active caption"
+    "id": "CmdShowCaptionDesc",
+    "translation": "Show the current active caption"
   },
   {
-      "id": "CmdClearCaptionDesc",
-      "translation": "Clear the current active caption"
+    "id": "CmdClearCaptionDesc",
+    "translation": "Clear the current active caption"
   },
   {
-      "id": "CmdSuggestDesc",
-      "translation": "Suggest a post for publication"
+    "id": "CmdSuggestDesc",
+    "translation": "Suggest a post for publication"
   },
   {
-      "id": "CmdReviewDesc",
-      "translation": "[Admin] Review the queue of suggested posts"
+    "id": "CmdReviewDesc",
+    "translation": "[Admin] Review the queue of suggested posts"
   },
   {
     "id": "MsgReviewSessionExpired",
@@ -257,6 +257,42 @@
   },
   {
     "id": "BtnPrevious",
-    "translation": "⬅️ Previous"
+    "translation": "⬅️ Back"
+  },
+  {
+    "id": "MsgCaptionPrompt",
+    "translation": "Enter the caption to be added to the next post:"
+  },
+  {
+    "id": "CmdFeedbackDesc",
+    "translation": "Send feedback or suggestion"
+  },
+  {
+    "id": "MsgFeedbackPrompt",
+    "translation": "Please send your feedback or suggestion. You can attach up to 10 photos/videos."
+  },
+  {
+    "id": "MsgFeedbackAlreadyWaiting",
+    "translation": "I am already waiting for your feedback. Please send it."
+  },
+  {
+    "id": "MsgFeedbackReceivedConfirmation",
+    "translation": "Thank you for your feedback!"
+  },
+  {
+    "id": "MsgFeedbackRequiresContent",
+    "translation": "Please send feedback text or attach media."
+  },
+  {
+    "id": "MsgFeedbackMediaGroupPartReceived",
+    "translation": "Received part of the media group for feedback. Waiting for the rest..."
+  },
+  {
+    "id": "MsgSuggestForUsersOnly",
+    "translation": "This command is intended for subscribers only."
+  },
+  {
+    "id": "MsgFeedbackForUsersOnly",
+    "translation": "Administrators cannot send feedback using this command."
   }
-] 
+]
