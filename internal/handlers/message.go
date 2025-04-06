@@ -222,6 +222,83 @@ func (h *MessageHandler) ProcessSuggestionMessage(ctx context.Context, update te
 	return processed, nil
 }
 
+// HandleVideo handles incoming single video messages from admins.
+// It copies the video message to the configured channel, applying the active caption if set.
+// It logs the action and updates user information.
+func (h *MessageHandler) HandleVideo(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+	if message.Video == nil {
+		log.Printf("HandleVideo called with non-video message (ID: %d) from user %d", message.MessageID, message.From.ID)
+		return nil
+	}
+
+	localizer := h.getLocalizer(message.From)
+	userID := message.From.ID
+
+	// --- Admin Check ---
+	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID)
+	if err != nil {
+		// Log error, assume non-admin
+		log.Printf("[HandleVideo User:%d] Error checking admin status: %v. Denying action.", userID, err)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
+	}
+	if !isAdmin {
+		log.Printf("[HandleVideo User:%d] Non-admin attempted to send video directly.", userID)
+		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
+	}
+	// --- End Admin Check ---
+
+	// Get active caption
+	caption, _ := h.GetActiveCaption(message.Chat.ID)
+
+	// Copy the video message to the target channel
+	sentMsgID, err := bot.CopyMessage(ctx, &telego.CopyMessageParams{
+		ChatID:     tu.ID(h.channelID),
+		FromChatID: tu.ID(message.Chat.ID),
+		MessageID:  message.MessageID,
+		Caption:    caption, // Apply the active caption
+	})
+	if err != nil {
+		log.Printf("[HandleVideo Admin:%d] Failed to copy video message %d to channel %d: %v", userID, message.MessageID, h.channelID, err)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorSendToChannel", nil, nil) // Assuming a generic send error message exists
+		_, _ = bot.SendMessage(ctx, tu.Message(tu.ID(message.Chat.ID), errorMsg))
+		return err // Return original error
+	}
+
+	publishedTime := time.Now()
+
+	// Create log entry for the video post
+	logEntry := models.PostLog{
+		SenderID:       userID,
+		SenderUsername: message.From.Username,
+		Caption:        caption,
+		MessageType:    "video", // Log type as video
+		ReceivedAt:     time.Unix(int64(message.Date), 0),
+		PublishedAt:    publishedTime,
+		ChannelID:      h.channelID,
+		ChannelPostID:  sentMsgID.MessageID,
+	}
+
+	// Log the post to the database
+	if err := h.postLogger.LogPublishedPost(logEntry); err != nil {
+		log.Printf("[HandleVideo Admin:%d] Failed attempt to log video post to DB. Error: %v", userID, err)
+		// Log only, don't fail the operation
+	}
+
+	// Record activity
+	h.recordUserActivity(ctx, message.From, "send_video_to_channel", isAdmin, map[string]interface{}{
+		"chat_id":             message.Chat.ID,
+		"original_message_id": message.MessageID,
+		"channel_message_id":  sentMsgID.MessageID,
+		"caption_used":        caption,
+	})
+
+	// Send confirmation
+	msg := locales.GetMessage(localizer, "MsgPostSentToChannel", nil, nil)
+	return h.sendSuccess(ctx, bot, message.Chat.ID, msg)
+}
+
 // HandleMediaGroup is commented out as media group logic is likely handled in bot.go
 /*
 func (h *MessageHandler) HandleMediaGroup(ctx context.Context, bot *telego.Bot, message telego.Message) error {

@@ -298,5 +298,9 @@
   {
     "id": "MsgFeedbackForUsersOnly",
     "translation": "Администраторы не могут отправлять отзывы через эту команду."
+  },
+  {
+    "id": "MsgErrorSendToChannel",
+    "translation": "Не удалось отправить сообщение в канал."
   }
 ]

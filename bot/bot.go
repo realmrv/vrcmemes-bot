@@ -7,8 +7,11 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 	dbi "vrcmemes-bot/internal/database" // Corrected import path
+	"vrcmemes-bot/internal/database/models"
 	"vrcmemes-bot/internal/locales"
+	"vrcmemes-bot/internal/mediagroups"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/mymmrac/telego"
@@ -31,6 +34,7 @@ type Bot struct {
 	callbackProc  dbi.CallbackProcessor // Processes callback queries.
 	userRepo      dbi.UserRepository    // Repository for user data.
 	actionLogger  dbi.UserActionLogger  // Logs user actions.
+	mediaGroupMgr *mediagroups.Manager  // Handles generic media group processing.
 }
 
 // BotDeps holds the dependencies required by the Bot.
@@ -45,6 +49,7 @@ type BotDeps struct {
 	CallbackProc  dbi.CallbackProcessor
 	UserRepo      dbi.UserRepository
 	ActionLogger  dbi.UserActionLogger
+	MediaGroupMgr *mediagroups.Manager // Add manager dependency
 }
 
 // New creates a new Bot instance from its dependencies.
@@ -75,6 +80,9 @@ func New(deps BotDeps) (*Bot, error) {
 	if deps.ActionLogger == nil {
 		return nil, fmt.Errorf("action logger cannot be nil")
 	}
+	if deps.MediaGroupMgr == nil {
+		return nil, fmt.Errorf("media group manager cannot be nil")
+	}
 
 	return &Bot{
 		bot:           deps.Bot,
@@ -87,6 +95,7 @@ func New(deps BotDeps) (*Bot, error) {
 		callbackProc:  deps.CallbackProc,
 		userRepo:      deps.UserRepo,
 		actionLogger:  deps.ActionLogger,
+		mediaGroupMgr: deps.MediaGroupMgr,
 		// updatesChan is initialized in Start()
 	}, nil
 }
@@ -169,20 +178,19 @@ func (b *Bot) handleTextUpdate(ctx context.Context, message telego.Message) {
 }
 
 // handleVideoUpdate processes an incoming single video message.
-// Placeholder: Implement actual video handling logic if needed.
 func (b *Bot) handleVideoUpdate(ctx context.Context, message telego.Message) {
 	logPrefix := fmt.Sprintf("[Video User:%d Msg:%d]", message.From.ID, message.MessageID)
 	if message.Video != nil && message.MediaGroupID == "" {
 		if b.debug {
 			log.Printf("%s Processing single video", logPrefix)
 		}
-		// TODO: Call a dedicated handler for single videos if needed
-		// err := b.handler.HandleVideo(ctx, b.bot, message)
-		// if err != nil {
-		// 	log.Printf("%s Handler error: %v", logPrefix, err)
-		// 	sentry.CaptureException(fmt.Errorf("%s handler error: %w", logPrefix, err))
-		// }
-		log.Printf("%s Placeholder for single video handling.", logPrefix)
+		// Call the dedicated handler for single videos
+		err := b.handerProv.HandleVideo(ctx, b.bot, message) // Use handler provider
+		if err != nil {
+			log.Printf("%s Handler error: %v", logPrefix, err)
+			sentry.CaptureException(fmt.Errorf("%s handler error: %w", logPrefix, err))
+		}
+		// log.Printf("%s Placeholder for single video handling.", logPrefix)
 	} else {
 		log.Printf("%s Ignoring non-single-video message in video handler", logPrefix)
 	}
@@ -292,8 +300,19 @@ func (b *Bot) handleUpdateInLoop(ctx context.Context, update telego.Update) {
 		case message.Text != "" && strings.HasPrefix(message.Text, "/"):
 			b.handleCommandUpdate(ctx, message)
 		case message.MediaGroupID != "":
-			// Call the handler from mediagroup.go
-			b.handleMediaGroupUpdate(message)
+			// Delegate to the universal media group manager
+			// Pass the context, message, and the specific processor function for admin posts
+			err := b.mediaGroupMgr.HandleMessage(
+				ctx, // Pass the context from the update loop
+				message,
+				b.processAdminMediaGroup,        // The function to call when the group is ready
+				mediagroups.DefaultProcessDelay, // Use default delay
+				mediagroups.DefaultMaxGroupSize, // Use default max size
+			)
+			if err != nil {
+				log.Printf("[Bot UpdateLoop User:%d] Error handling media group via manager: %v", message.From.ID, err)
+				// Consider sending error to user/Sentry
+			}
 		case message.Photo != nil:
 			b.handlePhotoUpdate(ctx, message)
 		case message.Text != "":
@@ -367,3 +386,107 @@ func (b *Bot) Stop() {
 	// If there were other resources to clean up (e.g., closing connections not handled by defer),
 	// they would go here.
 }
+
+// --- Media Group Processing Logic (Moved from mediagroup.go) ---
+
+const (
+	adminMediaGroupMaxSendRetries = 3 // Retries specific to admin posts
+)
+
+// processAdminMediaGroup is the specific handler function for media groups sent directly by admins.
+// This function matches the mediagroups.ProcessFunc signature.
+func (b *Bot) processAdminMediaGroup(ctx context.Context, groupID string, msgs []telego.Message) error {
+	if len(msgs) == 0 {
+		log.Printf("[ProcessAdminMediaGroup Group:%s] Attempted to process empty group.", groupID)
+		return nil // Nothing to process
+	}
+	firstMessage := msgs[0] // Use the first message for context like sender ID
+	logPrefix := fmt.Sprintf("[ProcessAdminMediaGroup Group:%s User:%d]", groupID, firstMessage.From.ID)
+	log.Printf("%s Processing %d messages.", logPrefix, len(msgs))
+
+	// Retrieve caption (check group-specific first, then user's active caption)
+	caption := b.captionProv.RetrieveMediaGroupCaption(groupID)
+	if caption == "" {
+		if userCaption, ok := b.captionProv.GetActiveCaption(firstMessage.Chat.ID); ok {
+			caption = userCaption
+			log.Printf("%s Using active user caption for group.", logPrefix)
+		}
+	}
+
+	inputMedia := createInputMedia(msgs, caption) // Use helper from helpers.go
+	log.Printf("%s Created %d input media items.", logPrefix, len(inputMedia))
+
+	if len(inputMedia) == 0 {
+		log.Printf("%s No valid media found in messages. Skipping send.", logPrefix)
+		return nil // Not an error, just nothing to send
+	}
+
+	// Send the media group using helper from helpers.go
+	sentMessages, err := sendMediaGroupWithRetry(ctx, b.bot, b.channelID, b.debug, groupID, inputMedia, adminMediaGroupMaxSendRetries)
+	if err != nil {
+		log.Printf("%s Error sending group: %v", logPrefix, err)
+		// Error is already captured by sentry inside sendMediaGroupWithRetry
+		return fmt.Errorf("failed to send admin media group %s: %w", groupID, err)
+	}
+
+	// --- Post-Processing ---
+	publishedTime := time.Now()
+	channelPostID := 0
+	if len(sentMessages) > 0 {
+		channelPostID = sentMessages[0].MessageID // ID of the first message in the sent group
+	}
+
+	// Create Log Entry
+	postLogEntry := &models.PostLog{
+		SenderID:             firstMessage.From.ID,
+		SenderUsername:       firstMessage.From.Username,
+		Caption:              caption,
+		MessageType:          "media_group",
+		ReceivedAt:           time.Unix(int64(firstMessage.Date), 0),
+		PublishedAt:          publishedTime,
+		ChannelID:            b.channelID,
+		ChannelPostID:        channelPostID,
+		OriginalMediaGroupID: groupID,
+	}
+
+	// Log Post
+	if errLog := b.postLogger.LogPublishedPost(*postLogEntry); errLog != nil {
+		log.Printf("%s Error logging post to database: %v", logPrefix, errLog)
+		sentry.CaptureException(fmt.Errorf("%s failed to log post: %w", logPrefix, errLog))
+		// Continue even if logging fails
+	}
+
+	// Update User and Log Action (if user info available)
+	if firstMessage.From != nil {
+		userID := firstMessage.From.ID
+		if errUpdate := b.userRepo.UpdateUser(ctx, userID, firstMessage.From.Username, firstMessage.From.FirstName, firstMessage.From.LastName, true, "send_media_group"); errUpdate != nil {
+			log.Printf("%s Failed to update user info after sending media group: %v", logPrefix, errUpdate)
+			sentry.CaptureException(fmt.Errorf("%s failed to update user %d after media group: %w", logPrefix, userID, errUpdate))
+		}
+
+		actionDetails := map[string]interface{}{
+			"chat_id":            firstMessage.Chat.ID,
+			"media_group_id":     groupID,
+			"message_count":      len(msgs),
+			"channel_message_id": channelPostID,
+		}
+		if errLogAction := b.actionLogger.LogUserAction(userID, "send_media_group", actionDetails); errLogAction != nil {
+			log.Printf("%s Failed to log send_media_group action: %v", logPrefix, errLogAction)
+			sentry.CaptureException(fmt.Errorf("%s failed to log send_media_group action for user %d: %w", logPrefix, userID, errLogAction))
+		}
+	} else {
+		log.Printf("%s Cannot perform post-processing: From field is nil in the first message.", logPrefix)
+	}
+
+	log.Printf("%s Successfully processed admin media group -> Channel Post ID: %d.", logPrefix, channelPostID)
+	// TODO: Send confirmation to admin?
+	return nil // Success
+}
+
+// --- Media Group Helpers (Moved to helpers.go) ---
+
+// createInputMedia moved to helpers.go
+
+// sendMediaGroupWithRetry moved to helpers.go
+
+// parseRetryAfter moved to helpers.go

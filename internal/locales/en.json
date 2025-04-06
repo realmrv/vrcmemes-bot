@@ -16,6 +16,10 @@
     "translation": "Post sent to the channel."
   },
   {
+    "id": "MsgErrorSendToChannel",
+    "translation": "Failed to send the message to the channel."
+  },
+  {
     "id": "MsgCaptionSetConfirmation",
     "translation": "Caption set. It will be added to the next photo/video/group."
   },

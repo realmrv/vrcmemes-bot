@@ -13,6 +13,7 @@ import (
 	"vrcmemes-bot/internal/database"
 	"vrcmemes-bot/internal/handlers"
 	"vrcmemes-bot/internal/locales"
+	"vrcmemes-bot/internal/mediagroups"
 	"vrcmemes-bot/internal/suggestions"
 
 	telegoBot "vrcmemes-bot/bot"
@@ -48,18 +49,12 @@ func initSentry(cfg *config.Config) error {
 // connectDatabase establishes a connection to MongoDB.
 // Returns the client, database instance, and any error.
 func connectDatabase(cfg *config.Config) (*mongo.Client, *mongo.Database, error) {
-	client, connCtx, err := database.ConnectDB(cfg)
+	client, _, err := database.ConnectDB(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 	// Note: The context returned by ConnectDB might be useful for the initial connection setup,
 	// but we don't typically need to keep it around. The client manages its own context.
-	// We might want to close connCtx if ConnectDB expects it. Check ConnectDB implementation.
-	if connCtx != nil {
-		// Assuming connCtx might have a cancel func we should call?
-		// If ConnectDB starts background tasks with it, we need to manage its lifecycle.
-		// For now, let's assume it's just for the connection attempt.
-	}
 	log.Println("Connected to MongoDB.")
 	db := client.Database(cfg.MongoDBDatabase)
 	return client, db, nil
@@ -92,6 +87,7 @@ func setupBotComponents(
 	postLogger database.PostLogger,
 	userRepo database.UserRepository,
 	feedbackRepo database.FeedbackRepository,
+	mediaGroupMgr *mediagroups.Manager,
 ) (*auth.AdminChecker, *suggestions.Manager, *handlers.MessageHandler, error) {
 
 	adminChecker, err := auth.NewAdminChecker(bot, cfg.ChannelID)
@@ -105,6 +101,7 @@ func setupBotComponents(
 		cfg.ChannelID,
 		adminChecker,
 		feedbackRepo,
+		mediaGroupMgr,
 	)
 
 	messageHandler := handlers.NewMessageHandler(
@@ -160,6 +157,9 @@ func main() {
 	// Create Repositories
 	suggestionRepo, userActionLogger, postLogger, userRepo, feedbackRepo := createRepositories(db)
 
+	// Create Media Group Manager
+	mediaGroupMgr := mediagroups.NewManager()
+
 	// Creating application lifecycle context
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -178,7 +178,7 @@ func main() {
 
 	// 2. Setup Core Bot Components (Checker, Manager, Handler)
 	_, suggestionManager, messageHandler, err := setupBotComponents(
-		cfg, bot, suggestionRepo, userActionLogger, postLogger, userRepo, feedbackRepo,
+		cfg, bot, suggestionRepo, userActionLogger, postLogger, userRepo, feedbackRepo, mediaGroupMgr,
 	)
 	if err != nil {
 		sentry.CaptureException(err)
@@ -199,6 +199,7 @@ func main() {
 		CallbackProc:  messageHandler, // Assuming MessageHandler implements CallbackProcessor
 		UserRepo:      userRepo,
 		ActionLogger:  userActionLogger,
+		MediaGroupMgr: mediaGroupMgr,
 	}
 	appBot, err := telegoBot.New(appBotDeps)
 	if err != nil {
@@ -216,5 +217,10 @@ func main() {
 	// Stop the bot wrapper gracefully
 	appBot.Stop()
 
-	log.Println("Bot shutdown complete.")
+	// Stop media group timers
+	if mediaGroupMgr != nil {
+		mediaGroupMgr.Shutdown()
+	}
+
+	// Disconnect from MongoDB using the application context
 }

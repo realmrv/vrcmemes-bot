@@ -51,6 +51,7 @@ type HandlerProvider interface {
 	GetCommandHandler(command string) CommandHandler
 	HandlePhoto(ctx context.Context, bot *telego.Bot, message telego.Message) error
 	HandleText(ctx context.Context, bot *telego.Bot, message telego.Message) error
+	HandleVideo(ctx context.Context, bot *telego.Bot, message telego.Message) error
 	// HandleVideo(ctx context.Context, bot *telego.Bot, message telego.Message) error // Placeholder for video
 }
 

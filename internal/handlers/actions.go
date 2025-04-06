@@ -14,6 +14,7 @@ const (
 	ActionSetCaptionReply         = "set_caption_reply"
 	ActionSendTextToChannel       = "send_text_to_channel"
 	ActionSendPhotoToChannel      = "send_photo_to_channel"
+	ActionSendVideoToChannel      = "send_video_to_channel"
 	ActionSendMediaGroupToChannel = "send_media_group_to_channel"
 	ActionSuggestMedia            = "suggest_media"
 	ActionReviewAction            = "review_action"
