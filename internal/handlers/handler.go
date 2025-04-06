@@ -7,32 +7,14 @@ import (
 	"vrcmemes-bot/internal/auth"
 	"vrcmemes-bot/internal/database"
 	"vrcmemes-bot/internal/database/models"
-
 	"vrcmemes-bot/internal/suggestions"
 
 	"github.com/mymmrac/telego"
 )
 
-// Action types for logging and user updates
-const (
-	ActionCommandStart            = "command_start"
-	ActionCommandHelp             = "command_help"
-	ActionCommandStatus           = "command_status"
-	ActionCommandVersion          = "command_version"
-	ActionCommandCaption          = "command_caption"
-	ActionCommandShowCaption      = "command_show_caption"
-	ActionCommandClearCaption     = "command_clear_caption"
-	ActionCommandSuggest          = "command_suggest" // Although suggest handler doesn't log like this yet
-	ActionCommandReview           = "command_review"  // Although review handler doesn't log like this yet
-	ActionSetCaptionReply         = "set_caption_reply"
-	ActionSendTextToChannel       = "send_text_to_channel"
-	ActionSendPhotoToChannel      = "send_photo_to_channel"
-	ActionSendMediaGroupToChannel = "send_media_group_to_channel"
-)
-
 // Command represents a bot command, mapping the command string to its description and handler function.
 type Command struct {
-	Command     string                                                   // The command string (e.g., "start").
+	Command     string                                                   // The command string (e.g., \"start\").
 	Description string                                                   // A short description of the command for /help.
 	Handler     func(context.Context, *telego.Bot, telego.Message) error // The function to execute when the command is received.
 }
@@ -88,15 +70,15 @@ func NewMessageHandler(
 	}
 	// Initialize commands - Descriptions will be localized on demand (e.g., in /help handler)
 	h.commands = []Command{
-		{Command: "start", Description: "CmdStartDesc", Handler: h.HandleStart},                      // Key for description
-		{Command: "help", Description: "CmdHelpDesc", Handler: h.HandleHelp},                         // Key for description
-		{Command: "status", Description: "CmdStatusDesc", Handler: h.HandleStatus},                   // Key for description
-		{Command: "version", Description: "CmdVersionDesc", Handler: h.HandleVersion},                // Key for description
-		{Command: "caption", Description: "CmdCaptionDesc", Handler: h.HandleCaption},                // Key for description
-		{Command: "showcaption", Description: "CmdShowCaptionDesc", Handler: h.HandleShowCaption},    // Key for description
-		{Command: "clearcaption", Description: "CmdClearCaptionDesc", Handler: h.HandleClearCaption}, // Key for description
-		{Command: "suggest", Description: "CmdSuggestDesc", Handler: h.HandleSuggest},                // Key for description
-		{Command: "review", Description: "CmdReviewDesc", Handler: h.HandleReview},                   // Key for description
+		{Command: "start", Description: "CmdStartDesc", Handler: h.HandleStart},
+		{Command: "help", Description: "CmdHelpDesc", Handler: h.HandleHelp},
+		{Command: "status", Description: "CmdStatusDesc", Handler: h.HandleStatus},
+		{Command: "version", Description: "CmdVersionDesc", Handler: h.HandleVersion},
+		{Command: "caption", Description: "CmdCaptionDesc", Handler: h.HandleCaption},
+		{Command: "showcaption", Description: "CmdShowCaptionDesc", Handler: h.HandleShowCaption},
+		{Command: "clearcaption", Description: "CmdClearCaptionDesc", Handler: h.HandleClearCaption},
+		{Command: "suggest", Description: "CmdSuggestDesc", Handler: h.HandleSuggest},
+		{Command: "review", Description: "CmdReviewDesc", Handler: h.HandleReview},
 		// TODO: Add other admin commands here if needed
 	}
 	return h
