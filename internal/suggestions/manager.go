@@ -122,12 +122,23 @@ func (m *Manager) HandleSuggestCommand(ctx context.Context, update telego.Update
 
 // HandleMessage processes incoming messages potentially containing suggestion content.
 func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (processed bool, err error) {
-	if update.Message == nil || update.Message.From == nil || m.GetUserState(update.Message.From.ID) != StateAwaitingSuggestion {
+	if update.Message == nil || update.Message.From == nil {
+		return false, nil // Not a message we can process here
+	}
+
+	userID := update.Message.From.ID
+	currentState := m.GetUserState(userID)
+	log.Printf("[Suggest Manager HandleMessage User:%d] Current state: %v", userID, currentState)
+
+	if currentState != StateAwaitingSuggestion {
+		log.Printf("[Suggest Manager HandleMessage User:%d] State is not AwaitingSuggestion, returning processed=false", userID)
 		return false, nil
 	}
 
+	// If state IS StateAwaitingSuggestion, proceed with handling
+	log.Printf("[Suggest Manager HandleMessage User:%d] State is AwaitingSuggestion, proceeding...", userID)
+
 	message := update.Message
-	userID := message.From.ID
 	chatID := message.Chat.ID
 
 	// Default to Russian
@@ -281,11 +292,14 @@ func (m *Manager) UpdateSuggestionStatus(ctx context.Context, id primitive.Objec
 
 // DeleteSuggestion removes a suggestion from the database.
 func (m *Manager) DeleteSuggestion(ctx context.Context, id primitive.ObjectID) error {
-	err := m.repo.DeleteSuggestion(ctx, id)
-	if err != nil {
-		log.Printf("Error deleting suggestion from DB with ID %s: %v", id.Hex(), err)
-		return err
-	}
-	log.Printf("Deleted suggestion from DB with ID %s", id.Hex())
-	return nil
+	// This might not be needed directly if suggestions are marked, but implemented for completeness
+	return m.repo.DeleteSuggestion(ctx, id)
+}
+
+// ProcessSuggestionCallback satisfies the database.SuggestionManager interface.
+// It delegates the call to the internal HandleCallbackQuery method.
+func (m *Manager) ProcessSuggestionCallback(ctx context.Context, query telego.CallbackQuery) (processed bool, err error) {
+	// Note: HandleCallbackQuery might need adjustments if its signature or behavior
+	// doesn't perfectly match the interface requirements (e.g., error handling).
+	return m.HandleCallbackQuery(ctx, query)
 }

@@ -9,7 +9,7 @@ import (
 	"time"
 	"vrcmemes-bot/internal/auth"
 	"vrcmemes-bot/internal/config"
-	database2 "vrcmemes-bot/internal/database"
+	"vrcmemes-bot/internal/database"
 	"vrcmemes-bot/internal/handlers"
 	"vrcmemes-bot/internal/locales"
 	"vrcmemes-bot/internal/suggestions"
@@ -32,21 +32,26 @@ func main() {
 	locales.Init()
 
 	// Initialize Sentry (if DSN is provided)
-	err = sentry.Init(sentry.ClientOptions{
-		Dsn:              cfg.SentryDSN,
-		Environment:      cfg.AppEnv,
-		Release:          cfg.Version,
-		EnableTracing:    true,
-		TracesSampleRate: 1.0,
-		Debug:            cfg.Debug,
-	})
-	if err != nil {
-		log.Fatalf("sentry.Init: %s", err)
+	if cfg.SentryDSN != "" {
+		err = sentry.Init(sentry.ClientOptions{
+			Dsn:              cfg.SentryDSN,
+			Environment:      cfg.AppEnv,
+			Release:          cfg.Version,
+			EnableTracing:    true,
+			TracesSampleRate: 1.0,
+			Debug:            cfg.Debug,
+		})
+		if err != nil {
+			log.Fatalf("sentry.Init: %s", err)
+		}
+		defer sentry.Flush(2 * time.Second)
+		log.Println("Sentry initialized.")
+	} else {
+		log.Println("Sentry DSN not provided, skipping initialization.")
 	}
-	defer sentry.Flush(2 * time.Second)
 
 	// Connect to MongoDB
-	client, _, err := database2.ConnectDB(cfg)
+	client, _, err := database.ConnectDB(cfg)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatal(err)
@@ -62,12 +67,12 @@ func main() {
 
 	// Create repository instances
 	db := client.Database(cfg.MongoDBDatabase) // Get database instance
-	suggestionRepo := database2.NewMongoSuggestionRepository(db)
-	userActionLogger := database2.NewMongoLogger(db)
-	postLogger := database2.NewMongoLogger(db)
+	suggestionRepo := database.NewMongoSuggestionRepository(db)
+	userActionLogger := database.NewMongoLogger(db)
+	postLogger := database.NewMongoLogger(db)
 	// Assuming UserRepository is implemented by MongoLogger for now
 	// If not, use: userRepo := database.NewMongoUserRepository(db)
-	userRepo := database2.NewMongoLogger(db)
+	userRepo := database.NewMongoLogger(db)
 
 	// Creating context for application lifecycle
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -103,16 +108,28 @@ func main() {
 
 	// 4. Create message handler with dependencies
 	messageHandler := handlers.NewMessageHandler(
-		cfg.ChannelID,    // Keep channel ID here for caption logic etc.
-		postLogger,       // Pass the specific post logger
-		userActionLogger, // Pass the specific action logger
-		userRepo,         // Pass the specific user repository
-		suggestionManager,
-		adminChecker, // Pass admin checker
+		cfg.ChannelID,
+		postLogger,        // dbi.PostLogger
+		userActionLogger,  // dbi.UserActionLogger
+		userRepo,          // dbi.UserRepository
+		suggestionManager, // dbi.SuggestionManager (implements parts)
+		adminChecker,
 	)
 
-	// 5. Create the bot wrapper
-	appBot, err := telegoBot.New(bot, cfg.Debug, messageHandler)
+	// 5. Create the bot wrapper with dependencies
+	appBotDeps := telegoBot.BotDeps{
+		Bot:           bot,
+		Debug:         cfg.Debug,
+		ChannelID:     cfg.ChannelID,
+		CaptionProv:   messageHandler,    // MessageHandler implements CaptionProvider
+		PostLogger:    postLogger,        // Pass the specific logger
+		HandlerProv:   messageHandler,    // MessageHandler implements HandlerProvider
+		SuggestionMgr: suggestionManager, // Pass the manager instance
+		CallbackProc:  messageHandler,    // MessageHandler implements CallbackProcessor
+		UserRepo:      userRepo,
+		ActionLogger:  userActionLogger,
+	}
+	appBot, err := telegoBot.New(appBotDeps)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatal(err)
@@ -127,6 +144,17 @@ func main() {
 	log.Println("Shutting down bot...")
 	// Stop the bot wrapper gracefully
 	appBot.Stop()
+
+	// Disconnect from MongoDB using the application context
+	log.Println("Attempting to disconnect from MongoDB...")
+	disconnectCtx, cancelDisconnect := context.WithTimeout(context.Background(), 5*time.Second) // Add timeout for disconnect
+	defer cancelDisconnect()
+	if err = client.Disconnect(disconnectCtx); err != nil {
+		log.Printf("Error disconnecting from MongoDB: %v", err)
+		sentry.CaptureException(err) // Report disconnect error if Sentry is enabled
+	} else {
+		log.Println("Disconnected from MongoDB (shutdown).")
+	}
 
 	log.Println("Bot shutdown complete.")
 }

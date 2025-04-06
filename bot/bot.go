@@ -7,7 +7,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
-	"vrcmemes-bot/internal/handlers"
+	dbi "vrcmemes-bot/internal/database" // Corrected import path
 	"vrcmemes-bot/internal/locales"
 
 	"github.com/getsentry/sentry-go"
@@ -19,29 +19,74 @@ import (
 // It wraps the telego library, manages the update loop, handles different update types,
 // and orchestrates complex operations like media group processing.
 type Bot struct {
-	bot         *telego.Bot              // The underlying telego bot instance.
-	handler     *handlers.MessageHandler // The message handler containing logic for specific commands and message types.
-	updatesChan <-chan telego.Update     // Channel for receiving updates from Telegram.
-	mediaGroups sync.Map                 // Thread-safe map to temporarily store incoming media group messages. Key: mediaGroupID (string), Value: []telego.Message
-	debug       bool                     // Flag to enable debug logging.
+	bot           *telego.Bot           // The underlying telego bot instance.
+	updatesChan   <-chan telego.Update  // Channel for receiving updates from Telegram.
+	mediaGroups   sync.Map              // Thread-safe map for media groups.
+	debug         bool                  // Enable debug logging.
+	channelID     int64                 // Channel ID for posting.
+	captionProv   dbi.CaptionProvider   // Provides captions.
+	postLogger    dbi.PostLogger        // Logs published posts.
+	handerProv    dbi.HandlerProvider   // Provides message handlers (commands, text, photo).
+	suggestionMgr dbi.SuggestionManager // Handles suggestion flow.
+	callbackProc  dbi.CallbackProcessor // Processes callback queries.
+	userRepo      dbi.UserRepository    // Repository for user data.
+	actionLogger  dbi.UserActionLogger  // Logs user actions.
 }
 
-// New creates a new Bot instance.
-// It requires a pre-configured telego.Bot instance, a MessageHandler, and a debug flag.
-// Returns the new Bot instance or an error if dependencies are nil.
-func New(bot *telego.Bot, debug bool, handler *handlers.MessageHandler) (*Bot, error) {
+// BotDeps holds the dependencies required by the Bot.
+type BotDeps struct {
+	Bot           *telego.Bot
+	Debug         bool
+	ChannelID     int64
+	CaptionProv   dbi.CaptionProvider
+	PostLogger    dbi.PostLogger
+	HandlerProv   dbi.HandlerProvider
+	SuggestionMgr dbi.SuggestionManager
+	CallbackProc  dbi.CallbackProcessor
+	UserRepo      dbi.UserRepository
+	ActionLogger  dbi.UserActionLogger
+}
+
+// New creates a new Bot instance from its dependencies.
+// Returns the new Bot instance or an error if dependencies are missing.
+func New(deps BotDeps) (*Bot, error) {
 	// Validate dependencies
-	if bot == nil {
+	if deps.Bot == nil {
 		return nil, fmt.Errorf("telego bot instance cannot be nil")
 	}
-	if handler == nil {
-		return nil, fmt.Errorf("message handler instance cannot be nil")
+	if deps.CaptionProv == nil {
+		return nil, fmt.Errorf("caption provider cannot be nil")
+	}
+	if deps.PostLogger == nil {
+		return nil, fmt.Errorf("post logger cannot be nil")
+	}
+	if deps.HandlerProv == nil {
+		return nil, fmt.Errorf("handler provider cannot be nil")
+	}
+	if deps.SuggestionMgr == nil {
+		return nil, fmt.Errorf("suggestion manager cannot be nil")
+	}
+	if deps.CallbackProc == nil {
+		return nil, fmt.Errorf("callback processor cannot be nil")
+	}
+	if deps.UserRepo == nil {
+		return nil, fmt.Errorf("user repository cannot be nil")
+	}
+	if deps.ActionLogger == nil {
+		return nil, fmt.Errorf("action logger cannot be nil")
 	}
 
 	return &Bot{
-		bot:     bot,
-		handler: handler,
-		debug:   debug,
+		bot:           deps.Bot,
+		debug:         deps.Debug,
+		channelID:     deps.ChannelID,
+		captionProv:   deps.CaptionProv,
+		postLogger:    deps.PostLogger,
+		handerProv:    deps.HandlerProv,
+		suggestionMgr: deps.SuggestionMgr,
+		callbackProc:  deps.CallbackProc,
+		userRepo:      deps.UserRepo,
+		actionLogger:  deps.ActionLogger,
 		// updatesChan is initialized in Start()
 	}, nil
 }
@@ -54,7 +99,7 @@ func (b *Bot) handleCommandUpdate(ctx context.Context, message telego.Message) {
 	}
 	logPrefix := fmt.Sprintf("[Cmd:%s User:%d]", command, message.From.ID)
 
-	handlerFunc := b.handler.GetCommandHandler(command)
+	handlerFunc := b.handerProv.GetCommandHandler(command) // Use handler provider
 	if handlerFunc != nil {
 		if b.debug {
 			log.Printf("%s Executing handler", logPrefix)
@@ -94,7 +139,7 @@ func (b *Bot) handlePhotoUpdate(ctx context.Context, message telego.Message) {
 		if b.debug {
 			log.Printf("%s Processing single photo", logPrefix)
 		}
-		err := b.handler.HandlePhoto(ctx, b.bot, message)
+		err := b.handerProv.HandlePhoto(ctx, b.bot, message) // Use handler provider
 		if err != nil {
 			log.Printf("%s Handler error: %v", logPrefix, err)
 			sentry.CaptureException(fmt.Errorf("%s handler error: %w", logPrefix, err))
@@ -112,32 +157,34 @@ func (b *Bot) handleTextUpdate(ctx context.Context, message telego.Message) {
 			log.Printf("%s Processing text message", logPrefix)
 		}
 
-		// First, check if the suggestion manager should handle this message
-		update := telego.Update{Message: &message}
-		processedBySuggestionManager, suggestionErr := b.handler.ProcessSuggestionMessage(ctx, update)
-		if suggestionErr != nil {
-			log.Printf("%s Suggestion handler error: %v", logPrefix, suggestionErr)
-			// ProcessSuggestionMessage might return a wrapped error, capture it
-			sentry.CaptureException(fmt.Errorf("%s suggestion handler error: %w", logPrefix, suggestionErr))
-			// Decide if we should stop or continue to general handler? Assuming stop.
-			return
-		}
-
-		if processedBySuggestionManager {
-			if b.debug {
-				log.Printf("%s Message handled by suggestion manager", logPrefix)
-			}
-			return // Message was handled, do nothing more
-		}
-
-		// If not handled by suggestion manager, proceed with the general text handler
-		err := b.handler.HandleText(ctx, b.bot, message)
+		// Proceed with the general text handler
+		err := b.handerProv.HandleText(ctx, b.bot, message) // Use handler provider
 		if err != nil {
 			log.Printf("%s General text handler error: %v", logPrefix, err)
 			sentry.CaptureException(fmt.Errorf("%s general text handler error: %w", logPrefix, err))
 		}
 	} else {
 		log.Printf("%s Ignoring empty or command message in text handler", logPrefix)
+	}
+}
+
+// handleVideoUpdate processes an incoming single video message.
+// Placeholder: Implement actual video handling logic if needed.
+func (b *Bot) handleVideoUpdate(ctx context.Context, message telego.Message) {
+	logPrefix := fmt.Sprintf("[Video User:%d Msg:%d]", message.From.ID, message.MessageID)
+	if message.Video != nil && message.MediaGroupID == "" {
+		if b.debug {
+			log.Printf("%s Processing single video", logPrefix)
+		}
+		// TODO: Call a dedicated handler for single videos if needed
+		// err := b.handler.HandleVideo(ctx, b.bot, message)
+		// if err != nil {
+		// 	log.Printf("%s Handler error: %v", logPrefix, err)
+		// 	sentry.CaptureException(fmt.Errorf("%s handler error: %w", logPrefix, err))
+		// }
+		log.Printf("%s Placeholder for single video handling.", logPrefix)
+	} else {
+		log.Printf("%s Ignoring non-single-video message in video handler", logPrefix)
 	}
 }
 
@@ -156,7 +203,7 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, query telego.CallbackQuer
 	localizer := locales.NewLocalizer(lang)
 
 	// Delegate to suggestion manager first
-	processed, err := b.handler.ProcessSuggestionCallback(ctx, query)
+	processed, err := b.suggestionMgr.ProcessSuggestionCallback(ctx, query) // Use suggestion manager
 	if err != nil {
 		log.Printf("%s Suggestion callback handler error: %v", logPrefix, err)
 		sentry.CaptureException(fmt.Errorf("%s suggestion callback handler error: %w", logPrefix, err))
@@ -174,7 +221,25 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, query telego.CallbackQuer
 		return
 	}
 
-	// If not handled by suggestion manager, handle other callbacks if any
+	// If not handled by suggestion manager, delegate to general callback processor
+	// This assumes ProcessSuggestionCallback is also part of the CallbackProcessor interface
+	processedGeneral, errGeneral := b.callbackProc.ProcessSuggestionCallback(ctx, query) // Use callback processor
+	if errGeneral != nil {
+		log.Printf("%s General callback handler error: %v", logPrefix, errGeneral)
+		sentry.CaptureException(fmt.Errorf("%s general callback handler error: %w", logPrefix, errGeneral))
+		// Answer with a localized generic error
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_ = b.bot.AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{CallbackQueryID: query.ID, Text: errorMsg})
+		return
+	}
+	if processedGeneral {
+		if b.debug {
+			log.Printf("%s Callback handled by general processor", logPrefix)
+		}
+		return
+	}
+
+	// If not handled by suggestion manager or general processor
 	log.Printf("%s Callback query not handled (Data: %q)", logPrefix, query.Data)
 	// Answer the callback query with localized message
 	notImplementedMsg := locales.GetMessage(localizer, "MsgErrorNotImplemented", nil, nil)
@@ -198,31 +263,31 @@ func (b *Bot) handleUpdateInLoop(ctx context.Context, update telego.Update) {
 	switch {
 	case update.Message != nil:
 		message := *update.Message
-		userID := message.From.ID
 
-		// --- Suggestion Manager Handling ---
-		// Check if the suggestion manager should handle this message first
-		// This includes states like awaiting content for /suggest
-		suggestionMgr := b.handler.SuggestionManager() // Get manager via getter
-		if suggestionMgr != nil {                      // Check if the returned manager instance is nil
-			processedBySuggestionManager, suggestionErr := suggestionMgr.HandleMessage(ctx, update)
+		// --- Suggestion Manager Handling FIRST ---
+		if b.suggestionMgr != nil { // Check if suggestion manager exists
+			processedBySuggestionManager, suggestionErr := b.suggestionMgr.HandleMessage(ctx, update)
 			if suggestionErr != nil {
-				logPrefix := fmt.Sprintf("[User:%d]", userID)
+				// Log error and potentially notify user, but stop processing here
+				logPrefix := fmt.Sprintf("[User:%d]", message.From.ID)
 				log.Printf("%s Suggestion handler error: %v", logPrefix, suggestionErr)
 				sentry.CaptureException(fmt.Errorf("%s suggestion handler error: %w", logPrefix, suggestionErr))
-				// Suggestion manager should ideally handle user feedback directly
-				return // Stop further processing if manager handled it (even with error)
+				return // Stop further processing on suggestion handler error
 			}
+			// Log the result of the suggestion manager handling
+			log.Printf("[Bot UpdateLoop User:%d] Suggestion manager HandleMessage result: processed=%v", message.From.ID, processedBySuggestionManager)
+
 			if processedBySuggestionManager {
 				if b.debug {
-					log.Printf("[User:%d] Message handled by suggestion manager.", userID)
+					log.Printf("[Bot UpdateLoop User:%d] Message handled by suggestion manager. Skipping standard handlers.", message.From.ID)
 				}
-				return // Stop further processing if manager handled it successfully
+				return // IMPORTANT: Stop further processing if manager handled it
 			}
+			// If suggestion manager didn't process, fall through to standard handlers
 		}
 		// --- End Suggestion Manager Handling ---
 
-		// If not handled by suggestion manager, proceed with standard handlers
+		// Proceed with standard handlers ONLY if not handled by suggestion manager
 		switch {
 		case message.Text != "" && strings.HasPrefix(message.Text, "/"):
 			b.handleCommandUpdate(ctx, message)
@@ -233,11 +298,14 @@ func (b *Bot) handleUpdateInLoop(ctx context.Context, update telego.Update) {
 			b.handlePhotoUpdate(ctx, message)
 		case message.Text != "":
 			b.handleTextUpdate(ctx, message)
+		case message.Video != nil:
+			b.handleVideoUpdate(ctx, message) // Handle single videos
 		default:
 			if b.debug {
 				log.Printf("Unhandled message type from user %d in chat %d", message.From.ID, message.Chat.ID)
 			}
 		}
+
 	case update.CallbackQuery != nil:
 		b.handleCallbackQuery(ctx, *update.CallbackQuery)
 	// Add cases for other update types if needed (e.g., EditedMessage, ChannelPost)

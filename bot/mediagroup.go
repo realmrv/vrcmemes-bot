@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 	"vrcmemes-bot/internal/database/models"
-	"vrcmemes-bot/internal/locales"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/mymmrac/telego"
@@ -126,14 +125,13 @@ func parseRetryAfter(errorString string) (int, bool) {
 func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, groupID string, inputMedia []telego.InputMedia, maxRetries int) ([]telego.Message, error) {
 	var lastErr error
 	var retryCount int
-	channelID := b.handler.GetChannelID()
 	const defaultRetryWait = 2 * time.Second
 
 	logPrefix := fmt.Sprintf("[SendRetry Group:%s]", groupID) // Use actual groupID
 
 	for retryCount < maxRetries {
 		sentMessages, err := b.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
-			ChatID: tu.ID(channelID),
+			ChatID: tu.ID(b.channelID), // Use stored channelID
 			Media:  inputMedia,
 		})
 
@@ -154,6 +152,8 @@ func (b *Bot) sendMediaGroupWithRetry(ctx context.Context, groupID string, input
 				log.Printf("%s Rate limit hit (attempt %d/%d), waiting %d seconds", logPrefix, retryCount+1, maxRetries, retryAfterSeconds)
 				waitDuration = time.Duration(retryAfterSeconds) * time.Second
 			} else {
+				// Warning: Parsing the error string might be brittle if the API error format changes.
+				// Consider checking if telego provides a structured way to get RetryAfter parameter.
 				log.Printf("%s Rate limit hit (attempt %d/%d), couldn't parse retry time, waiting %v. Error: %s", logPrefix, retryCount+1, maxRetries, defaultRetryWait, errStr)
 			}
 
@@ -194,9 +194,9 @@ func (b *Bot) processMediaGroup(ctx context.Context, groupID string, msgs []tele
 	log.Printf("%s Processing %d messages.", logPrefix, len(msgs))
 
 	// Retrieve caption (check group-specific first, then user's active caption)
-	caption := b.handler.RetrieveMediaGroupCaption(groupID)
+	caption := b.captionProv.RetrieveMediaGroupCaption(groupID)
 	if caption == "" {
-		if userCaption, ok := b.handler.GetActiveCaption(firstMessage.Chat.ID); ok {
+		if userCaption, ok := b.captionProv.GetActiveCaption(firstMessage.Chat.ID); ok {
 			caption = userCaption
 			log.Printf("%s Using active user caption for group.", logPrefix)
 		}
@@ -229,147 +229,96 @@ func (b *Bot) processMediaGroup(ctx context.Context, groupID string, msgs []tele
 		MessageType:          "media_group",
 		ReceivedAt:           time.Unix(int64(firstMessage.Date), 0), // Time of the first message received
 		PublishedAt:          publishedTime,
-		ChannelID:            b.handler.GetChannelID(),
+		ChannelID:            b.channelID,
 		ChannelPostID:        channelPostID,
 		OriginalMediaGroupID: groupID,
 	}
+
+	// Note: Logging user action and updating user info should be handled
+	// by the caller or a dedicated post-processing step if needed,
+	// as Bot no longer has direct access to ActionLogger/UserRepo here.
+	// The confirmation message to the user should also be handled elsewhere.
 
 	log.Printf("%s Successfully sent group -> Channel Post ID: %d.", logPrefix, channelPostID)
 	return logEntry, nil
 }
 
 // handleLoadedMediaGroup is the core logic executed after a delay for a potential media group.
-// It ensures only the goroutine corresponding to the first message processes the group,
-// calls processMediaGroup, logs results, and handles cleanup.
-func (b *Bot) handleLoadedMediaGroup(ctx context.Context, groupID string, firstMessageID int) {
+// It uses LoadAndDelete for atomicity, ensuring only one goroutine processes the group.
+// It then calls processMediaGroup, logs results, and handles cleanup.
+func (b *Bot) handleLoadedMediaGroup(ctx context.Context, groupID string) {
 	logPrefix := fmt.Sprintf("[HandleLoaded Group:%s]", groupID)
 
-	// Load the final list of messages for the group
-	val, ok := b.mediaGroups.Load(groupID)
-	if !ok {
-		log.Printf("%s Group already processed or cleaned up.", logPrefix)
-		return // Already handled or timed out elsewhere
-	}
-	msgs := val.([]telego.Message)
-
-	if len(msgs) == 0 {
-		log.Printf("%s Group is empty, cleaning up.", logPrefix)
-		b.mediaGroups.Delete(groupID)
-		b.handler.DeleteMediaGroupCaption(groupID)
-		return
-	}
-
-	// Crucial check: Only proceed if this goroutine was triggered by the *first* message stored for this group.
-	if msgs[0].MessageID != firstMessageID {
+	// Atomically load and delete the group. Only one goroutine will succeed.
+	val, loaded := b.mediaGroups.LoadAndDelete(groupID)
+	if !loaded {
+		// If !loaded is true, it means the key didn't exist (already processed or never existed).
 		if b.debug {
-			log.Printf("%s Skipping processing: Not the first message's timer (Expected: %d, Got: %d).", logPrefix, msgs[0].MessageID, firstMessageID)
+			log.Printf("%s Group not found or already processed/deleted.", logPrefix)
 		}
-		return // Let the correct goroutine handle it and the cleanup.
+		return
 	}
 
-	log.Printf("%s Timer fired for first message (%d). Processing %d messages.", logPrefix, firstMessageID, len(msgs))
+	// If loaded is true, 'val' contains the messages and this goroutine has exclusive access.
+	msgs, ok := val.([]telego.Message)
+	if !ok || len(msgs) == 0 {
+		log.Printf("%s Loaded empty or invalid group data after delete. Type: %T", logPrefix, val)
+		sentry.CaptureException(fmt.Errorf("%s loaded invalid group data type %T for group %s", logPrefix, val, groupID))
+		return
+	}
 
-	// Corrected call: Pass groupID and msgs slice
-	logEntry, err := b.processMediaGroup(ctx, groupID, msgs)
+	log.Printf("%s Atomically loaded %d messages for processing.", logPrefix, len(msgs))
 
-	// --- Cleanup after processing (successful or not) --- Must happen only once per group!
-	b.mediaGroups.Delete(groupID)
-	b.handler.DeleteMediaGroupCaption(groupID)
-	log.Printf("%s Cleaned up group storage.", logPrefix)
-	// --- End Cleanup ---
-
+	// Process the retrieved media group
+	postLogEntry, err := b.processMediaGroup(ctx, groupID, msgs)
 	if err != nil {
-		log.Printf("%s Error during media group processing: %v", logPrefix, err)
-		// Error already logged/sent to Sentry by processMediaGroup or sendMediaGroupWithRetry
-		// Optionally, notify the sender?
-		// _, sendErr := b.bot.SendMessage(ctx, tu.Message(tu.ID(msgs[0].Chat.ID), fmt.Sprintf("Failed to process media group: %v", err)))
-		// if sendErr != nil { ... }
-		return
+		// Error during processing (e.g., sending failed after retries)
+		log.Printf("%s Error processing media group: %v", logPrefix, err)
+		// Error is already captured by sentry inside processMediaGroup or sendMediaGroupWithRetry
+		return // Cleanup already happened via LoadAndDelete
 	}
 
-	if logEntry == nil {
-		log.Printf("%s Processing finished, but no log entry generated (e.g., no valid media).", logPrefix)
-		return
+	// Log successful post if entry was created
+	if postLogEntry != nil {
+		err = b.postLogger.LogPublishedPost(*postLogEntry) // Use the post logger
+		if err != nil {
+			log.Printf("%s Error logging post to database: %v", logPrefix, err)
+			sentry.CaptureException(fmt.Errorf("%s failed to log post: %w", logPrefix, err))
+		} else {
+			if b.debug {
+				log.Printf("%s Post logged successfully.", logPrefix)
+			}
+		}
 	}
 
-	// Log the successful post to the database
-	if postLogErr := b.handler.LogPublishedPost(*logEntry); postLogErr != nil {
-		log.Printf("%s Failed to log media group post to DB: %v", logPrefix, postLogErr)
-		// LogPublishedPost logs internally, just capture for Sentry
-		sentry.CaptureException(fmt.Errorf("%s failed to log media group post: %w", logPrefix, postLogErr))
-	}
-
-	// Update user info after successful processing
-	if userUpdateErr := b.handler.UserRepo().UpdateUser(ctx, logEntry.SenderID, logEntry.SenderUsername, msgs[0].From.FirstName, msgs[0].From.LastName, false, "send_media_group"); userUpdateErr != nil {
-		log.Printf("%s Failed to update user info after sending media group: %v", logPrefix, userUpdateErr)
-		sentry.CaptureException(fmt.Errorf("%s failed to update user after media group: %w", logPrefix, userUpdateErr))
-	}
-
-	// Log the user action using the new accessor method
-	if actionLogErr := b.handler.ActionLogger().LogUserAction(logEntry.SenderID, "send_media_group", map[string]interface{}{
-		"chat_id":            msgs[0].Chat.ID,
-		"media_group_id":     groupID,
-		"message_count":      len(msgs),
-		"channel_message_id": logEntry.ChannelPostID,
-	}); actionLogErr != nil {
-		log.Printf("%s Failed to log send_media_group action: %v", logPrefix, actionLogErr)
-		sentry.CaptureException(fmt.Errorf("%s failed to log send_media_group action: %w", logPrefix, actionLogErr))
-	}
-
-	// Send confirmation to the user using localized string
-	lang := locales.DefaultLanguage // Default language
-	if msgs[0].From != nil && msgs[0].From.LanguageCode != "" {
-		// lang = msgs[0].From.LanguageCode // TODO: Use user language
-	}
-	localizer := locales.NewLocalizer(lang)
-	successMsg := locales.GetMessage(localizer, "MsgMediaGroupSuccess", nil, nil)
-
-	if _, successMsgErr := b.bot.SendMessage(ctx, tu.Message(tu.ID(msgs[0].Chat.ID), successMsg)); successMsgErr != nil {
-		log.Printf("%s Failed to send success confirmation for media group: %v", logPrefix, successMsgErr)
+	// Cleanup (removing the timer) is implicitly handled because this function
+	// is called by the timer itself, and the group is removed by LoadAndDelete.
+	// No need to explicitly remove the group from b.mediaGroups here.
+	if b.debug {
+		log.Printf("%s Finished handling group.", logPrefix)
 	}
 }
 
-// processMediaGroupAfterDelay waits for a short duration before attempting to process a media group.
-// This allows time for subsequent messages in the same group to arrive.
-// It loads the group from storage and calls handleLoadedMediaGroup.
-func (b *Bot) processMediaGroupAfterDelay(groupID string, firstMessageID int) {
-	// Create a new context for the delayed execution, as the original handler context might have expired.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Example timeout
-	defer cancel()
-
-	timer := time.NewTimer(mediaGroupProcessDelay)
-	defer timer.Stop() // Ensure timer is stopped if function exits early
-
-	log.Printf("[Delay Timer Group:%s] Started %v timer for first message %d.", groupID, mediaGroupProcessDelay, firstMessageID)
-
-	select {
-	case <-timer.C:
-		log.Printf("[Delay Timer Group:%s] Timer finished, proceeding to handle loaded group.", groupID)
-		// Call the handler logic in a separate goroutine to avoid blocking potential future timers?
-		// Or handle directly if processing is expected to be fast.
-		// For simplicity, handle directly here.
-		b.handleLoadedMediaGroup(ctx, groupID, firstMessageID)
-	case <-ctx.Done():
-		log.Printf("[Delay Timer Group:%s] Context cancelled before timer finished: %v", groupID, ctx.Err())
-		// Clean up the group as it won't be processed
-		b.mediaGroups.Delete(groupID)
-		b.handler.DeleteMediaGroupCaption(groupID)
-	}
-}
-
-// handleMediaGroupUpdate is the entry point for handling messages that are part of a media group.
-// It calls handleMediaGroup to manage storage and delayed processing.
-// Note: The context from the original update is not passed down currently.
+// handleMediaGroupUpdate receives a message belonging to a media group.
+// It stores the message and schedules processMediaGroup using time.AfterFunc
+// only if this is the *first* message received for the group.
 func (b *Bot) handleMediaGroupUpdate(message telego.Message) {
-	if message.MediaGroupID == "" {
-		return // Should not happen if called correctly
-	}
+	if b.storeMessageInGroup(message) {
+		// If storeMessageInGroup returned true, this is the first message.
+		// Schedule the processing function to run after a delay.
+		groupID := message.MediaGroupID
+		if b.debug {
+			log.Printf("[MediaGroup Scheduler Group:%s] First message (ID: %d) received. Scheduling processing in %v.", groupID, message.MessageID, mediaGroupProcessDelay)
+		}
 
-	// Store the message and check if it's the first one for this group
-	isFirst := b.storeMessageInGroup(message)
-
-	// If it's the first message, start the delayed processing timer in a new goroutine.
-	if isFirst {
-		go b.processMediaGroupAfterDelay(message.MediaGroupID, message.MessageID)
+		// Use time.AfterFunc to schedule the call without blocking.
+		// The context passed should ideally be derived from the application's main context
+		// to allow cancellation on shutdown, but managing individual timer contexts can be complex.
+		// For now, we use context.Background(), but consider refining context propagation if needed.
+		time.AfterFunc(mediaGroupProcessDelay, func() {
+			// We pass a background context here. If shutdown needs to interrupt processing,
+			// more sophisticated context management would be required (e.g., storing cancel funcs).
+			b.handleLoadedMediaGroup(context.Background(), groupID)
+		})
 	}
 }

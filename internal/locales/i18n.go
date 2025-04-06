@@ -20,7 +20,7 @@ var bundle *i18n.Bundle
 
 // Init initializes the i18n bundle by loading language files.
 func Init() {
-	bundle = i18n.NewBundle(language.English) // Default language is English
+	bundle = i18n.NewBundle(language.Russian) // Use Russian as the bundle's default language
 	// Register the unmarshal function for JSON files
 	bundle.RegisterUnmarshalFunc("json", json.Unmarshal)
 
@@ -78,13 +78,19 @@ func GetMessage(localizer *i18n.Localizer, msgID string, templateData map[string
 	localizedMsg, err := localizer.Localize(config)
 	if err != nil {
 		// Fallback or error logging
-		log.Printf("ERROR: Failed to localize message ID '%s': %v. Returning message ID as fallback.", msgID, err)
-		// Optionally, try to localize with the default language as a better fallback
-		defaultLocalizer := i18n.NewLocalizer(bundle, language.English.String())
-		fallbackMsg, fallbackErr := defaultLocalizer.Localize(config)
+		// Log the failed message ID. Getting the specific attempted language from localizer isn't straightforward.
+		log.Printf("ERROR: Failed to localize message ID '%s': %v. Falling back to English.", msgID, err)
+
+		// Create a localizer specifically for English fallback
+		englishLocalizer := i18n.NewLocalizer(bundle, language.English.String())
+		fallbackMsg, fallbackErr := englishLocalizer.Localize(config)
 		if fallbackErr == nil {
+			// If English translation is found, return it
 			return fallbackMsg
 		}
+
+		// If English also fails, log and return the message ID
+		log.Printf("ERROR: Failed to localize message ID '%s' in English fallback as well. Returning ID.", msgID)
 		return msgID // Return the ID as the ultimate fallback
 	}
 	return localizedMsg

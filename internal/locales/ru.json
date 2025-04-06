@@ -244,6 +244,10 @@
     "translation": "Нет активной подписи для удаления."
   },
   {
+    "id": "MsgCaptionCleared",
+    "translation": "Активная подпись удалена."
+  },
+  {
     "id": "BtnApprove",
     "translation": "✅ Одобрить"
   },
@@ -258,5 +262,9 @@
   {
     "id": "BtnPrevious",
     "translation": "⬅️ Назад"
+  },
+  {
+    "id": "MsgCaptionPrompt",
+    "translation": "Введите подпись, которая будет добавлена к следующему посту:"
   }
-] 
+]

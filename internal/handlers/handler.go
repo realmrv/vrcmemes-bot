@@ -91,7 +91,7 @@ func (h *MessageHandler) GetChannelID() int64 {
 
 // GetCommandHandler retrieves the handler function associated with a specific command string (e.g., "start").
 // It returns nil if the command is not found.
-func (h *MessageHandler) GetCommandHandler(command string) func(context.Context, *telego.Bot, telego.Message) error {
+func (h *MessageHandler) GetCommandHandler(command string) database.CommandHandler {
 	for _, cmd := range h.commands {
 		if cmd.Command == command {
 			return cmd.Handler
