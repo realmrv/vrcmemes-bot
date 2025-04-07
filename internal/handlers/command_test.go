@@ -263,19 +263,18 @@ func setupTestHandlerSuite(t *testing.T) *testHandlerSuite {
 		activeCaptions:    activeCaptionsMap,
 	}
 
-	// Initialize the commands slice using the local Command type
-	localizer := locales.NewLocalizer("en")
+	// Initialize the commands slice using the local Command type and localization KEYS
 	handler.commands = []Command{ // Use the local Command type
-		{Command: "start", Description: locales.GetMessage(localizer, "CmdStartDesc", nil, nil), Handler: nil},
-		{Command: "help", Description: locales.GetMessage(localizer, "CmdHelpDesc", nil, nil), Handler: nil},
-		{Command: "status", Description: locales.GetMessage(localizer, "CmdStatusDesc", nil, nil), Handler: nil},
-		{Command: "version", Description: locales.GetMessage(localizer, "CmdVersionDesc", nil, nil), Handler: nil},
-		{Command: "caption", Description: locales.GetMessage(localizer, "CmdCaptionDesc", nil, nil), Handler: nil},
-		{Command: "showcaption", Description: locales.GetMessage(localizer, "CmdShowCaptionDesc", nil, nil), Handler: nil},
-		{Command: "clearcaption", Description: locales.GetMessage(localizer, "CmdClearCaptionDesc", nil, nil), Handler: nil},
-		{Command: "suggest", Description: locales.GetMessage(localizer, "CmdSuggestDesc", nil, nil), Handler: nil},
-		{Command: "review", Description: locales.GetMessage(localizer, "CmdReviewDesc", nil, nil), Handler: nil},
-		{Command: "feedback", Description: locales.GetMessage(localizer, "CmdFeedbackDesc", nil, nil), Handler: nil},
+		{Command: "start", Description: "CmdStartDesc", Handler: nil},
+		{Command: "help", Description: "CmdHelpDesc", Handler: nil},
+		{Command: "status", Description: "CmdStatusDesc", Handler: nil},
+		{Command: "version", Description: "CmdVersionDesc", Handler: nil},
+		{Command: "caption", Description: "CmdCaptionDesc", Handler: nil},
+		{Command: "showcaption", Description: "CmdShowCaptionDesc", Handler: nil},
+		{Command: "clearcaption", Description: "CmdClearCaptionDesc", Handler: nil},
+		{Command: "suggest", Description: "CmdSuggestDesc", Handler: nil},
+		{Command: "review", Description: "CmdReviewDesc", Handler: nil},
+		{Command: "feedback", Description: "CmdFeedbackDesc", Handler: nil},
 	}
 
 	return &testHandlerSuite{
