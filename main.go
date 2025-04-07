@@ -112,6 +112,7 @@ func setupBotComponents(
 		suggestionManager,
 		adminChecker,
 		feedbackRepo,
+		cfg.Version,
 	)
 
 	return adminChecker, suggestionManager, messageHandler, nil

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"vrcmemes-bot/internal/locales"
 	telegoapi "vrcmemes-bot/pkg/telegoapi" // Import for BotAPI
@@ -123,7 +122,9 @@ func (h *MessageHandler) HandleStatus(ctx context.Context, bot telegoapi.BotAPI,
 // HandleVersion handles the /version command.
 // It retrieves the application version, formats a version message, updates user info, logs the action, and sends the version.
 func (h *MessageHandler) HandleVersion(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
-	version := os.Getenv("VERSION")
+	// Use the stored version
+	version := h.version
+	// Redundant check, but keeps original logic if h.version could be empty
 	if version == "" {
 		version = "dev"
 	}

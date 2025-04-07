@@ -39,6 +39,8 @@ type MessageHandler struct {
 	// commands holds the list of available bot commands.
 	commands []Command
 
+	version string // Added version field
+
 	// Dependencies for database interactions and suggestion management.
 	postLogger        database.PostLogger         // Interface for logging published posts.
 	actionLogger      database.UserActionLogger   // Interface for logging user actions.
@@ -58,6 +60,7 @@ func NewMessageHandler(
 	suggestionManager SuggestionManagerInterface, // Use interface
 	adminChecker auth.AdminCheckerInterface, // Use auth.AdminCheckerInterface
 	feedbackRepo database.FeedbackRepository, // Accept FeedbackRepository
+	version string, // Added version parameter
 ) *MessageHandler {
 	if adminChecker == nil {
 		// If AdminChecker is essential, consider logging a fatal error or returning an error
@@ -77,6 +80,7 @@ func NewMessageHandler(
 		suggestionManager: suggestionManager,
 		adminChecker:      adminChecker,
 		feedbackRepo:      feedbackRepo,
+		version:           version, // Assign version
 	}
 	// Initialize commands - Handler signatures already use telegoapi.BotAPI
 	h.commands = []Command{

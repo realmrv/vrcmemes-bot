@@ -12,8 +12,22 @@ jobs:
     environment: production # Specify the environment to access its secrets
 
     steps:
-      - name: Checkout code # Although code is pulled on the server, this step is good practice and required by some actions like ssh-agent
+      - name: Checkout code # Required to access the code for building/testing
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24' # Specify your Go version
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Test
+        run: go test -v ./...
 
       - name: Setup SSH Agent
         uses: webfactory/ssh-agent@v0.9.0
