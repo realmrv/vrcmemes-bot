@@ -5,8 +5,9 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
 ## Features
 
 - Posts memes directly to a specified Telegram channel (Admin only)
-- **User Suggestion System:** Allows channel subscribers to suggest posts (/suggest).
-- **Admin Review Queue:** Admins can review (/review), approve, or reject suggestions.
+- **User Suggestion System:** Allows channel subscribers to suggest posts (`/suggest`).
+- **Admin Review Queue:** Admins can review (`/review`), approve, or reject suggestions.
+- **Caption Management:** Admins can set (`/caption`), view (`/showcaption`), and clear (`/clearcaption`) a default caption for subsequent media posts.
 - **Localization:** Supports multiple languages (EN, RU) using `go-i18n`.
 - Debug mode for development.
 - Error tracking with Sentry (including panic recovery).
@@ -18,19 +19,22 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
 - MongoDB integration for user tracking, post logging, and suggestion storage.
 - Docker support (Development & Production environments).
 - Hot-reload development mode with Air.
+- Unit tests for command handlers.
+- CI/CD pipeline with testing and deployment via GitHub Actions.
 
 ## Requirements
 
 - Go 1.24 or higher
 - Docker & Docker Compose
 - Telegram Bot Token
-- Sentry DSN (for error tracking)
+- Sentry DSN (optional, for error tracking)
 - Key dependencies:
   - `github.com/mymmrac/telego v1.0.2`
   - `github.com/getsentry/sentry-go v0.31.1`
   - `go.mongodb.org/mongo-driver v1.17.3`
   - `github.com/joho/godotenv v1.5.1` (for loading `.env` files)
-  - `github.com/nicksnyder/go-i18n/v2 v2.4.0`
+  - `github.com/nicksnyder/go-i18n/v2 v2.6.0`
+  - `github.com/stretchr/testify v1.10.0` (for testing)
 
 ## Installation & Running with Docker (Recommended)
 
@@ -48,9 +52,10 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
     ```
 
 3. **Edit `.env` file with your configuration:**
-    - Set `TELEGRAM_BOT_TOKEN`, `CHANNEL_ID`, `SENTRY_DSN`.
+    - Set `TELEGRAM_BOT_TOKEN`, `CHANNEL_ID`.
+    - Set `SENTRY_DSN` if you want to use Sentry for error tracking.
     - Adjust `MONGO_INITDB_ROOT_USERNAME` and `MONGO_INITDB_ROOT_PASSWORD` if needed (defaults are 'admin'/'password').
-    - Other variables like `APP_ENV`, `DEBUG`, `VERSION` can be configured as needed.
+    - Other variables like `APP_ENV`, `DEBUG`, `VERSION`, `BOT_DEFAULT_LANGUAGE` can be configured as needed.
     - **Note:** The `MONGODB_URI` is automatically configured for Docker Compose. For manual runs, you'll need to set it appropriately.
 
     ```env
@@ -58,10 +63,11 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
     APP_ENV=development    # development, staging, or production
     DEBUG=true            # Enable debug mode
     VERSION=dev          # Application version
+    BOT_DEFAULT_LANGUAGE=en       # Default bot language (en, ru)
 
     TELEGRAM_BOT_TOKEN=your-bot-token
-    CHANNEL_ID=your-channel-id # Bot will check admin status here
-    SENTRY_DSN=your-sentry-dsn-here
+    CHANNEL_ID=your-channel-id # Bot will check admin status here & post memes here
+    SENTRY_DSN=your-sentry-dsn-here # Optional
 
     # MongoDB Credentials (used by docker-compose.yml)
     MONGO_INITDB_ROOT_USERNAME=admin
@@ -121,9 +127,10 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
 | `APP_ENV`                      | Application environment (development/staging/production) | No                   | `development`   |
 | `DEBUG`                        | Enable debug mode                                        | No                   | `false`         |
 | `VERSION`                      | Application version                                      | Yes                  | -               |
+| `BOT_DEFAULT_LANGUAGE`         | Default language for the bot (e.g., `en`, `ru`)          | No                   | `en`            |
 | `TELEGRAM_BOT_TOKEN`           | Your Telegram bot token                                  | Yes                  | -               |
 | `CHANNEL_ID`                   | Telegram channel ID where memes will be posted and admin status checked | Yes                  | -               |
-| `SENTRY_DSN`                   | Sentry DSN for error tracking                            | Yes                  | -               |
+| `SENTRY_DSN`                   | Sentry DSN for error tracking                            | No                   | -               |
 | `MONGO_INITDB_ROOT_USERNAME` | MongoDB root username for initialization               | No (used by Docker)  | `admin`         |
 | `MONGO_INITDB_ROOT_PASSWORD` | MongoDB root password for initialization               | No (used by Docker)  | `password`      |
 | `MONGODB_URI`                  | MongoDB connection URI                                   | Yes (for manual run) | -               |
@@ -131,8 +138,8 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
 
 ## User Roles & Admin Check
 
-- **Admin:** Determined by having `creator` or `administrator` status in the Telegram channel specified by `CHANNEL_ID`. Admins can use all bot commands *except* `/suggest`. They can post directly, manage captions, and review suggestions (`/review`).
-- **User/Subscriber:** Can use `/start`, `/help`, and `/suggest` to propose posts. Must be subscribed to the target channel (`CHANNEL_ID`) to use `/suggest`.
+- **Admin:** Determined by having `creator` or `administrator` status in the Telegram channel specified by `CHANNEL_ID`. Admins can use all bot commands *except* `/suggest` and `/feedback`. They can post directly, manage captions, and review suggestions (`/review`).
+- **User/Subscriber:** Can use `/start`, `/help`, `/suggest`, and `/feedback`. Must be subscribed to the target channel (`CHANNEL_ID`) to use `/suggest`.
 
 ## Commands
 
@@ -141,6 +148,7 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
 - `/start`: Start interaction with the bot and get a welcome message.
 - `/help`: Show help information.
 - `/suggest`: Start the process of suggesting a post for the channel. (Requires channel subscription)
+- `/feedback`: Send feedback or suggestions about the bot to the admins.
 
 ### Admin Commands
 
@@ -148,8 +156,11 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
 - `/help`: Show help information.
 - `/status`: Show bot status and current caption.
 - `/version`: Show bot version.
+- `/caption [text]`: Set or update the caption to be used for the next direct media post.
+- `/showcaption`: Show the currently active caption.
+- `/clearcaption`: Clear the currently active caption.
 - `/review`: Start reviewing pending suggestions.
-- (Direct messages): Send photos, videos, or media groups directly to the bot to post them to the channel. Text in the message will be used as the caption.
+- (Direct messages): Send photos, videos, or media groups directly to the bot to post them to the channel. Text in the message will be used as the caption *unless* an active caption is set via `/caption`.
 
 ## Suggestion Workflow
 
@@ -160,26 +171,32 @@ Telegram bot for posting VRChat memes to a channel, featuring a suggestion and r
 5. The bot confirms receipt and stores the suggestion (including media file IDs and comment) in MongoDB with "pending" status.
 6. An admin (checked via channel status) uses `/review`.
 7. The bot presents the oldest pending suggestion (media + comment + submitter info) with Approve/Reject/Next buttons.
-8. Admin approves: The bot posts the media to the channel (using the suggestion's comment as caption if desired, or a default caption) and updates the suggestion status to "approved".
+8. Admin approves: The bot posts the media to the channel (using the suggestion's comment as caption if desired) and updates the suggestion status to "approved".
 9. Admin rejects: The bot updates the suggestion status to "rejected".
 10. Admin skips (Next): The bot shows the next pending suggestion.
 
 ## Localization
 
-The bot uses `github.com/nicksnyder/go-i18n/v2` for localization. Language files (`en.json`, `ru.json`) are located in `pkg/locales/`. The default language is set in `pkg/locales/i18n.go`.
+The bot uses `github.com/nicksnyder/go-i18n/v2` for localization. Language files (`en.json`, `ru.json`) are located in `internal/locales/`. The default language is set via the `BOT_DEFAULT_LANGUAGE` environment variable (defaulting to `en` in `internal/locales/i18n.go`).
 
 ## Project Structure
 
 ```
 .
 ├── bot/                     # Core bot logic, Telegram API interaction, update loop
-├── config/                  # Configuration loading (.env)
-├── database/                # MongoDB interaction (connection, models, repository interfaces)
-├── handlers/                # Telegram message/command handlers (routing, initial processing)
 ├── internal/
-│   └── suggestions/       # Logic for suggestion handling, review process, admin checks
+│   ├── auth/                # Admin checking logic
+│   ├── config/              # Configuration loading (.env)
+│   ├── database/            # MongoDB interaction (connection, models, repository interfaces)
+│   ├── handlers/            # Telegram message/command handlers (routing, initial processing)
+│   ├── locales/           # Localization files (en.json, ru.json) and i18n setup
+│   ├── mediagroups/       # Handling of Telegram media groups
+│   └── suggestions/       # Logic for suggestion handling, review process
 ├── pkg/
-│   └── locales/           # Localization files (en.json, ru.json) and i18n setup
+│   ├── telegoapi/         # Wrapper/interface for telego BotAPI (for easier mocking)
+│   └── utils/             # Utility functions (e.g., Markdown escaping)
+├── .github/workflows/     # GitHub Actions workflows (CI/CD)
+│   └── deploy.yml
 ├── .air.toml                # Air configuration for hot-reload
 ├── .env.example             # Example environment variables
 ├── .gitignore               # Git ignore rules
@@ -200,7 +217,7 @@ Manual development using `go run` or `air` is possible but requires manual setup
 
 ## Error Tracking
 
-The bot uses Sentry for error tracking. Ensure `SENTRY_DSN` is set in your `.env` file.
+The bot uses Sentry for error tracking. Set `SENTRY_DSN` in your `.env` file to enable it.
 
 ## Database
 
@@ -217,11 +234,18 @@ The bot uses MongoDB to store user actions, published post logs, and suggestions
 
 ## CI/CD
 
-This project uses GitHub Actions for basic Continuous Deployment.
+This project uses GitHub Actions for testing and basic Continuous Deployment.
 
 - **Workflow:** `.github/workflows/deploy.yml`
 - **Trigger:** Pushes to the `develop` branch.
-- **Action:** Connects to the production server via SSH, pulls the latest changes from the `develop` branch, and rebuilds/restarts the Docker containers using `docker-compose up -d --build`.
+- **Actions:**
+    1. Sets up Go.
+    2. Downloads dependencies.
+    3. Builds the project.
+    4. **Runs tests (`go test -v ./...`).**
+    5. Connects to the production server via SSH.
+    6. Pulls the latest changes from the `develop` branch.
+    7. Rebuilds and restarts the Docker containers using `docker-compose up -d --build`.
 
 ### Required Secrets
 
