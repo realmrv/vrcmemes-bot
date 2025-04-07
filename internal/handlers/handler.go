@@ -4,19 +4,20 @@ import (
 	"context"
 	"log"
 	"sync"
-	"vrcmemes-bot/internal/auth"
+	"vrcmemes-bot/internal/auth" // Import auth for AdminCheckerInterface
 	"vrcmemes-bot/internal/database"
 	"vrcmemes-bot/internal/database/models"
-	"vrcmemes-bot/internal/suggestions"
+	telegoapi "vrcmemes-bot/pkg/telegoapi" // Import telegoapi for BotAPI
 
 	"github.com/mymmrac/telego"
+	"github.com/nicksnyder/go-i18n/v2/i18n"
 )
 
 // Command represents a bot command, mapping the command string to its description and handler function.
 type Command struct {
-	Command     string                                                   // The command string (e.g., \"start\").
-	Description string                                                   // A short description of the command for /help.
-	Handler     func(context.Context, *telego.Bot, telego.Message) error // The function to execute when the command is received.
+	Command     string                                                        // The command string (e.g., "start").
+	Description string                                                        // A short description of the command for /help.
+	Handler     func(context.Context, telegoapi.BotAPI, telego.Message) error // Use telegoapi.BotAPI
 }
 
 // MessageHandler handles incoming Telegram messages and callbacks.
@@ -42,8 +43,8 @@ type MessageHandler struct {
 	postLogger        database.PostLogger         // Interface for logging published posts.
 	actionLogger      database.UserActionLogger   // Interface for logging user actions.
 	userRepo          database.UserRepository     // Interface for updating user information.
-	suggestionManager *suggestions.Manager        // Manages the meme suggestion workflow.
-	adminChecker      *auth.AdminChecker          // Add AdminChecker
+	suggestionManager SuggestionManagerInterface  // Use SuggestionManagerInterface
+	adminChecker      auth.AdminCheckerInterface  // Use auth.AdminCheckerInterface
 	feedbackRepo      database.FeedbackRepository // Interface for saving feedback
 }
 
@@ -54,13 +55,16 @@ func NewMessageHandler(
 	postLogger database.PostLogger,
 	actionLogger database.UserActionLogger,
 	userRepo database.UserRepository,
-	suggestionManager *suggestions.Manager,
-	adminChecker *auth.AdminChecker, // Accept AdminChecker
+	suggestionManager SuggestionManagerInterface, // Use interface
+	adminChecker auth.AdminCheckerInterface, // Use auth.AdminCheckerInterface
 	feedbackRepo database.FeedbackRepository, // Accept FeedbackRepository
 ) *MessageHandler {
 	if adminChecker == nil {
 		// If AdminChecker is essential, consider logging a fatal error or returning an error
 		log.Fatal("MessageHandler: Admin checker dependency is nil")
+	}
+	if suggestionManager == nil {
+		log.Fatal("MessageHandler: Suggestion manager dependency is nil")
 	}
 	if feedbackRepo == nil {
 		log.Fatal("MessageHandler: Feedback repository dependency is nil")
@@ -71,10 +75,10 @@ func NewMessageHandler(
 		actionLogger:      actionLogger,
 		userRepo:          userRepo,
 		suggestionManager: suggestionManager,
-		adminChecker:      adminChecker, // Store AdminChecker
-		feedbackRepo:      feedbackRepo, // Store FeedbackRepository
+		adminChecker:      adminChecker,
+		feedbackRepo:      feedbackRepo,
 	}
-	// Initialize commands - Descriptions will be localized on demand (e.g., in /help handler)
+	// Initialize commands - Handler signatures already use telegoapi.BotAPI
 	h.commands = []Command{
 		{Command: "start", Description: "CmdStartDesc", Handler: h.HandleStart},
 		{Command: "help", Description: "CmdHelpDesc", Handler: h.HandleHelp},
@@ -98,13 +102,13 @@ func (h *MessageHandler) GetChannelID() int64 {
 
 // GetCommandHandler retrieves the handler function associated with a specific command string (e.g., "start").
 // It returns nil if the command is not found.
-func (h *MessageHandler) GetCommandHandler(command string) database.CommandHandler {
+func (h *MessageHandler) GetCommandHandler(command string) func(context.Context, telegoapi.BotAPI, telego.Message) error { // Use telegoapi.BotAPI
 	for _, cmd := range h.commands {
 		if cmd.Command == command {
 			return cmd.Handler
 		}
 	}
-	return nil // Return nil if command not found
+	return nil
 }
 
 // LogPublishedPost is a convenience method that wraps the call to the underlying postLogger.
@@ -153,6 +157,17 @@ func (h *MessageHandler) ProcessSuggestionCallback(ctx context.Context, query te
 }
 
 // SuggestionManager provides access to the suggestion manager dependency.
-func (h *MessageHandler) SuggestionManager() *suggestions.Manager {
+func (h *MessageHandler) SuggestionManager() SuggestionManagerInterface {
 	return h.suggestionManager
+}
+
+// AdminChecker provides access to the admin checker dependency.
+func (h *MessageHandler) AdminChecker() auth.AdminCheckerInterface {
+	return h.adminChecker
+}
+
+// GetLocalizer provides access to the getLocalizer helper method (if needed externally).
+// For internal use, call h.getLocalizer directly.
+func (h *MessageHandler) GetLocalizer(user *telego.User) *i18n.Localizer { // Ensure i18n is imported in helpers.go
+	return h.getLocalizer(user)
 }

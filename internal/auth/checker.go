@@ -9,6 +9,11 @@ import (
 	"github.com/mymmrac/telego"
 )
 
+// AdminCheckerInterface defines the interface for checking admin status.
+type AdminCheckerInterface interface {
+	IsAdmin(ctx context.Context, userID int64) (bool, error)
+}
+
 // AdminChecker handles checking user admin status against a configured channel.
 type AdminChecker struct {
 	bot             *telego.Bot
@@ -32,9 +37,10 @@ func NewAdminChecker(bot *telego.Bot, channelID int64) (*AdminChecker, error) {
 
 // IsAdmin checks if a user is an administrator or creator in the target channel
 // configured in the AdminChecker.
+// This method satisfies the AdminCheckerInterface.
 func (ac *AdminChecker) IsAdmin(ctx context.Context, userID int64) (bool, error) {
 	member, err := ac.bot.GetChatMember(ctx, &telego.GetChatMemberParams{
-		ChatID: telego.ChatID{ID: ac.targetChannelID}, // Use stored channel ID
+		ChatID: telego.ChatID{ID: ac.targetChannelID},
 		UserID: userID,
 	})
 	if err != nil {

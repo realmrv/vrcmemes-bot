@@ -8,20 +8,17 @@ import (
 	"os"
 	"strings"
 	"vrcmemes-bot/internal/locales"
-	"vrcmemes-bot/internal/suggestions"
+	telegoapi "vrcmemes-bot/pkg/telegoapi" // Import for BotAPI
 
 	// Add import for bot package
 	// "time" // time is not used directly in this file after logger refactoring
 
 	"github.com/mymmrac/telego"
-	tu "github.com/mymmrac/telego/telegoutil"
-
-	"github.com/nicksnyder/go-i18n/v2/i18n" // Correct import for i18n.Localizer
 )
 
 // HandleStart handles the /start command.
 // It sets up the bot commands, updates user info, logs the action, and sends a welcome message.
-func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleStart(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	if err := h.setupCommands(ctx, bot); err != nil {
 		// Consider adding more context to the error before sending
 		// Maybe use locales for this error message too?
@@ -35,7 +32,7 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, messa
 	isAdmin, _ := h.adminChecker.IsAdmin(ctx, message.From.ID) // Use checker method
 
 	// Record activity (UpdateUser + LogUserAction combined)
-	h.recordUserActivity(ctx, message.From, ActionCommandStart, isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, ActionCommandStart, isAdmin, map[string]interface{}{
 		"chat_id": message.Chat.ID,
 	})
 
@@ -47,7 +44,7 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot *telego.Bot, messa
 
 // HandleHelp handles the /help command.
 // It generates a help message listing available commands, updates user info, logs the action, and sends the help text.
-func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleHelp(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	userID := message.From.ID
 	localizer := h.getLocalizer(message.From) // Use helper
 
@@ -91,7 +88,7 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 	helpText.WriteString(locales.GetMessage(localizer, footerKey, nil, nil))
 
 	// Record activity (UpdateUser + LogUserAction combined)
-	h.recordUserActivity(ctx, message.From, ActionCommandHelp, isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, ActionCommandHelp, isAdmin, map[string]interface{}{
 		"chat_id":  message.Chat.ID,
 		"is_admin": isAdmin, // Log admin status used for help message
 	})
@@ -101,7 +98,7 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot *telego.Bot, messag
 
 // HandleStatus handles the /status command.
 // It retrieves the current active caption, formats a status message, updates user info, logs the action, and sends the status.
-func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleStatus(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	caption, _ := h.GetActiveCaption(message.Chat.ID)
 	localizer := h.getLocalizer(message.From) // Use helper
 
@@ -115,7 +112,7 @@ func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, mess
 	isAdmin, _ := h.adminChecker.IsAdmin(ctx, message.From.ID) // Use checker method
 
 	// Record activity
-	h.recordUserActivity(ctx, message.From, ActionCommandStatus, isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, ActionCommandStatus, isAdmin, map[string]interface{}{
 		"chat_id": message.Chat.ID,
 		"caption": caption, // Log the caption that was active
 	})
@@ -125,7 +122,7 @@ func (h *MessageHandler) HandleStatus(ctx context.Context, bot *telego.Bot, mess
 
 // HandleVersion handles the /version command.
 // It retrieves the application version, formats a version message, updates user info, logs the action, and sends the version.
-func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleVersion(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	version := os.Getenv("VERSION")
 	if version == "" {
 		version = "dev"
@@ -142,7 +139,7 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 	isAdmin, _ := h.adminChecker.IsAdmin(ctx, message.From.ID) // Use checker method
 
 	// Record activity
-	h.recordUserActivity(ctx, message.From, ActionCommandVersion, isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, ActionCommandVersion, isAdmin, map[string]interface{}{
 		"chat_id": message.Chat.ID,
 		"version": version,
 	})
@@ -153,51 +150,29 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot *telego.Bot, mes
 // HandleSuggest handles the /suggest command by calling the suggestion manager.
 // It constructs a telego.Update object and passes it to the suggestion manager's handler.
 // Errors during suggestion handling are logged, assuming the manager handles user feedback.
-func (h *MessageHandler) HandleSuggest(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleSuggest(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	userID := message.From.ID
-	chatID := message.Chat.ID
-	localizer := h.getLocalizer(message.From)
-
-	// --- Admin Check: Prevent admins from using /suggest ---
-	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID)
-	if err != nil {
-		// Log error but proceed cautiously (treat as non-admin for check)
-		log.Printf("[Cmd:suggest User:%d] Error checking admin status: %v. Allowing command for now.", userID, err)
-		isAdmin = false // Assume non-admin if check fails, maybe allow suggest?
-	}
-	if isAdmin {
-		log.Printf("[Cmd:suggest User:%d] Admin attempted to use /suggest.", userID)
-		msg := locales.GetMessage(localizer, "MsgSuggestForUsersOnly", nil, nil)
-		return h.sendError(ctx, bot, chatID, errors.New(msg)) // Use sendError helper
-	}
-	// --- End Admin Check ---
-
-	// Check if already waiting for suggestion
-	if h.suggestionManager.GetUserState(userID) == suggestions.StateAwaitingSuggestion {
-		msg := locales.GetMessage(localizer, "MsgSuggestAlreadyWaitingForContent", nil, nil)
-		return h.sendError(ctx, bot, chatID, errors.New(msg))
-	}
-
-	// We need the full Update object for the manager's handler
-	// Construct a minimal Update containing the Message
+	// Construct update for manager and delegate
 	update := telego.Update{Message: &message}
-
-	// Delegate the handling to the suggestion manager
-	err = h.suggestionManager.HandleSuggestCommand(ctx, update)
-	if err != nil {
-		// The manager is expected to handle sending messages to the user on errors
-		// (e.g., user not subscribed, invalid format). We just log the error here
-		// if one occurs during the manager's processing.
-		log.Printf("[HandleSuggest] Error from suggestionManager.HandleSuggestCommand for user %d: %v", userID, err)
-		// Potentially send to Sentry
+	if h.suggestionManager != nil {
+		err := h.suggestionManager.HandleSuggestCommand(ctx, update)
+		if err != nil {
+			// Log error from HandleSuggestCommand. It should handle user feedback itself.
+			log.Printf("[Cmd:suggest User:%d] Error from suggestionManager.HandleSuggestCommand: %v", userID, err)
+			// Return nil because HandleSuggestCommand should manage sending errors to the user.
+			return nil
+		}
+		return nil // Success
+	} else {
+		log.Printf("[Cmd:suggest User:%d] Error: Suggestion manager is nil?", userID)
+		localizer := h.getLocalizer(message.From) // Use helper
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 	}
-	// Return nil to prevent the main bot loop from sending a generic error message.
-	// User feedback should be handled entirely by the suggestionManager.
-	return nil
 }
 
 // HandleReview handles the /review command by delegating to the suggestion manager.
-func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleReview(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	userID := message.From.ID
 
 	// --- Admin Check ---
@@ -247,107 +222,33 @@ func (h *MessageHandler) HandleReview(ctx context.Context, bot *telego.Bot, mess
 	}
 }
 
-// HandleFeedback handles the /feedback command.
-// It initiates the feedback process by setting the user state to StateAwaitingFeedback
-// and prompting the user to send their feedback message.
-func (h *MessageHandler) HandleFeedback(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+// HandleFeedback simply delegates to the suggestion manager's HandleFeedbackCommand.
+func (h *MessageHandler) HandleFeedback(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	userID := message.From.ID
-	chatID := message.Chat.ID
-	localizer := h.getLocalizer(message.From)
-
-	// --- Admin Check: Prevent admins from using /feedback ---
-	isAdmin, err := h.adminChecker.IsAdmin(ctx, userID)
-	if err != nil {
-		// Log error but proceed cautiously (treat as non-admin for check)
-		log.Printf("[Cmd:feedback User:%d] Error checking admin status: %v. Allowing command for now.", userID, err)
-		isAdmin = false // Assume non-admin if check fails
-	}
-	if isAdmin {
-		log.Printf("[Cmd:feedback User:%d] Admin attempted to use /feedback.", userID)
-		msg := locales.GetMessage(localizer, "MsgFeedbackForUsersOnly", nil, nil)
-		return h.sendError(ctx, bot, chatID, errors.New(msg))
-	}
-	// --- End Admin Check ---
-
-	// Check if already waiting for feedback
-	if h.suggestionManager.GetUserState(userID) == suggestions.StateAwaitingFeedback {
-		msg := locales.GetMessage(localizer, "MsgFeedbackAlreadyWaiting", nil, nil)
-		_, err = bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
-		return err
-	}
-
-	// Set user state to awaiting feedback
-	h.suggestionManager.SetUserState(userID, suggestions.StateAwaitingFeedback)
-
-	// Send prompt message
-	promptMsg := locales.GetMessage(localizer, "MsgFeedbackPrompt", nil, nil)
-	_, err = bot.SendMessage(ctx, tu.Message(tu.ID(chatID), promptMsg))
-	if err != nil {
-		// Rollback state if sending prompt fails
-		h.suggestionManager.SetUserState(userID, suggestions.StateIdle)
-		log.Printf("Error sending feedback prompt to user %d: %v", userID, err)
+	update := telego.Update{Message: &message}
+	if h.suggestionManager != nil {
+		err := h.suggestionManager.HandleFeedbackCommand(ctx, update)
+		if err != nil {
+			// Log error from HandleFeedbackCommand. It should handle user feedback itself.
+			log.Printf("[Cmd:feedback User:%d] Error from suggestionManager.HandleFeedbackCommand: %v", userID, err)
+			// Return nil because HandleFeedbackCommand should manage sending errors to the user.
+			return nil
+		}
+		return nil // Success
+	} else {
+		log.Printf("[Cmd:feedback User:%d] Error: Suggestion manager is nil?", userID)
+		localizer := h.getLocalizer(message.From) // Use helper
 		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
-		_, _ = bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
-		return err
+		return h.sendError(ctx, bot, message.Chat.ID, errors.New(errorMsg))
 	}
-
-	// Record activity
-	h.recordUserActivity(ctx, message.From, ActionCommandFeedback, false, map[string]interface{}{
-		"chat_id": chatID,
-	})
-
-	return nil
 }
 
 // --- Helper Functions ---
 
-// getLocalizer creates a localizer instance based on the user's language preference.
-// Falls back to the default language if the user or their language code is unavailable.
-func (h *MessageHandler) getLocalizer(user *telego.User) *i18n.Localizer {
-	lang := locales.DefaultLanguage
-	if user != nil && user.LanguageCode != "" {
-		// TODO: Implement robust language selection based on supported languages
-		// Example: if locales.IsSupported(user.LanguageCode) { lang = user.LanguageCode }
-		// log.Printf("[Localizer User:%d] Using language: %s", user.ID, lang) // Optional debug log
-	}
-	return locales.NewLocalizer(lang)
-}
-
-// recordUserActivity updates user info in the repository and logs the user action.
-// It logs errors internally if updates or logging fail.
-func (h *MessageHandler) recordUserActivity(ctx context.Context, user *telego.User, action string, isAdmin bool, details map[string]interface{}) {
-	if user == nil {
-		log.Printf("[Activity] Cannot record activity for action '%s': user is nil", action)
-		return
-	}
-
-	// Update user information
-	if h.userRepo != nil {
-		err := h.userRepo.UpdateUser(ctx, user.ID, user.Username, user.FirstName, user.LastName, isAdmin, action)
-		if err != nil {
-			log.Printf("[Activity User:%d Action:%s] Failed to update user info: %v", user.ID, action, err)
-			// Consider sending to Sentry: sentry.CaptureException(fmt.Errorf("failed to update user %d for action %s: %w", user.ID, action, err))
-		}
-	} else {
-		log.Printf("[Activity User:%d Action:%s] Warning: UserRepository is nil, cannot update user info", user.ID, action)
-	}
-
-	// Log the user action
-	if h.actionLogger != nil {
-		err := h.actionLogger.LogUserAction(user.ID, action, details)
-		if err != nil {
-			log.Printf("[Activity User:%d Action:%s] Failed to log user action: %v", user.ID, action, err)
-			// Consider sending to Sentry: sentry.CaptureException(fmt.Errorf("failed to log action %s for user %d: %w", user.ID, action, err))
-		}
-	} else {
-		log.Printf("[Activity User:%d Action:%s] Warning: UserActionLogger is nil, cannot log action", user.ID, action)
-	}
-}
-
 // setupCommands registers the bot's commands with Telegram.
 // It builds the list of commands from the handler's configuration, localizes their descriptions,
 // and uses the bot instance to set them.
-func (h *MessageHandler) setupCommands(ctx context.Context, bot *telego.Bot) error {
+func (h *MessageHandler) setupCommands(ctx context.Context, bot telegoapi.BotAPI) error {
 	if len(h.commands) == 0 {
 		log.Println("No commands defined in handler, skipping SetMyCommands.")
 		return nil // No commands to set is not an error

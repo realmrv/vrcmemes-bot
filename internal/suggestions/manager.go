@@ -2,6 +2,7 @@ package suggestions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"vrcmemes-bot/internal/database/models"
 	"vrcmemes-bot/internal/locales"
 	"vrcmemes-bot/internal/mediagroups"
+	telegoapi "vrcmemes-bot/pkg/telegoapi"
 
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
@@ -28,10 +30,10 @@ type Manager struct {
 	userStates   map[int64]UserState
 	muUserStates sync.RWMutex
 
-	bot             *telego.Bot
+	bot             telegoapi.BotAPI
 	targetChannelID int64
 	repo            database.SuggestionRepository
-	adminChecker    *auth.AdminChecker
+	adminChecker    auth.AdminCheckerInterface
 
 	adminCache      []telego.ChatMember
 	adminCacheTime  time.Time
@@ -49,15 +51,15 @@ type Manager struct {
 
 // NewManager creates a new suggestion manager.
 func NewManager(
-	bot *telego.Bot,
+	bot telegoapi.BotAPI,
 	repo database.SuggestionRepository,
 	targetChannelID int64,
-	adminChecker *auth.AdminChecker,
+	adminChecker auth.AdminCheckerInterface,
 	feedbackRepo database.FeedbackRepository,
-	mediaGroupMgr *mediagroups.Manager, // Add media group manager dependency
+	mediaGroupMgr *mediagroups.Manager,
 ) *Manager {
 	if bot == nil {
-		log.Fatal("Suggestion Manager: Telego bot instance is nil")
+		log.Fatal("Suggestion Manager: BotAPI instance is nil")
 	}
 	if repo == nil {
 		log.Fatal("Suggestion Manager: Suggestion repository is nil")
@@ -350,6 +352,36 @@ func (m *Manager) handleFeedbackContent(ctx context.Context, message *telego.Mes
 	return true, nil // Processed successfully
 }
 
+// HandleFeedbackCommand handles the /feedback command logic.
+func (m *Manager) HandleFeedbackCommand(ctx context.Context, update telego.Update) error {
+	if update.Message == nil || update.Message.From == nil {
+		log.Println("HandleFeedbackCommand: Received update without Message or From field.")
+		return fmt.Errorf("invalid update received for feedback command")
+	}
+
+	chatID := update.Message.Chat.ID
+	userID := update.Message.From.ID
+	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+
+	// Set user state to await feedback content
+	m.SetUserState(userID, StateAwaitingFeedback)
+
+	// Send prompt to user
+	promptMsg := locales.GetMessage(localizer, "MsgFeedbackPrompt", nil, nil)
+	_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), promptMsg))
+	if err != nil {
+		// Rollback state if prompt fails
+		m.SetUserState(userID, StateIdle)
+		log.Printf("[HandleFeedbackCommand User:%d] Error sending prompt: %v", userID, err)
+		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
+		return fmt.Errorf("failed to send feedback prompt: %w", err)
+	}
+
+	log.Printf("[HandleFeedbackCommand User:%d] State set to StateAwaitingFeedback", userID)
+	return nil
+}
+
 // SetUserState sets the state for a given user.
 func (m *Manager) SetUserState(userID int64, state UserState) {
 	m.muUserStates.Lock()
@@ -370,24 +402,55 @@ func (m *Manager) GetUserState(userID int64) UserState {
 
 // CheckSubscription checks if a user is a member of the target channel.
 func (m *Manager) CheckSubscription(ctx context.Context, userID int64) (bool, error) {
-	member, err := m.bot.GetChatMember(ctx, &telego.GetChatMemberParams{
+	memberPtr, err := m.bot.GetChatMember(ctx, &telego.GetChatMemberParams{
 		ChatID: telego.ChatID{ID: m.targetChannelID},
 		UserID: userID,
 	})
 	if err != nil {
-		// Consider specific API errors if needed
 		log.Printf("Error getting chat member %d from channel %d: %v", userID, m.targetChannelID, err)
 		return false, fmt.Errorf("failed to get chat member info: %w", err)
 	}
 
-	allowedStatuses := []string{"creator", "administrator", "member", "restricted"}
-	status := member.MemberStatus()
+	if memberPtr == nil {
+		log.Printf("GetChatMember returned nil interface for user %d in channel %d", userID, m.targetChannelID)
+		return false, fmt.Errorf("failed to get chat member info (nil interface)")
+	}
+
+	// Get status using type assertion on the interface value
+	var status string
+	switch t := memberPtr.(type) {
+	case *telego.ChatMemberOwner:
+		status = t.Status
+	case *telego.ChatMemberAdministrator:
+		status = t.Status
+	case *telego.ChatMemberMember:
+		status = t.Status
+	case *telego.ChatMemberRestricted:
+		status = t.Status // Might still be considered a member depending on rules
+	case *telego.ChatMemberLeft:
+		status = t.Status // User has left
+	case *telego.ChatMemberBanned:
+		status = t.Status // User is banned
+	default:
+		log.Printf("Unknown chat member type for user %d in channel %d: %T", userID, m.targetChannelID, t)
+		return false, fmt.Errorf("unknown chat member type")
+	}
+
+	// Check against allowed statuses
+	allowedStatuses := []string{
+		telego.MemberStatusCreator,
+		telego.MemberStatusAdministrator,
+		telego.MemberStatusMember,
+		// telego.MemberStatusRestricted, // Decide if restricted users count
+	}
 	for _, allowed := range allowedStatuses {
 		if status == allowed {
 			return true, nil
 		}
 	}
-	return false, nil
+
+	log.Printf("User %d has status '%s' in channel %d, which is not sufficient for subscription.", userID, status, m.targetChannelID)
+	return false, nil // Not subscribed or has insufficient status (left, banned, restricted?)
 }
 
 // AddSuggestion saves a new suggestion to the database.
@@ -413,28 +476,19 @@ func (m *Manager) GetSuggestionByID(ctx context.Context, id primitive.ObjectID) 
 }
 
 // UpdateSuggestionStatus updates the status of a suggestion in the database.
-func (m *Manager) UpdateSuggestionStatus(ctx context.Context, id primitive.ObjectID, status models.SuggestionStatus, reviewerID int64) error {
-	err := m.repo.UpdateSuggestionStatus(ctx, id, string(status), reviewerID)
+func (m *Manager) UpdateSuggestionStatus(ctx context.Context, id primitive.ObjectID, status models.SuggestionStatus, reviewerID int64, adminUsername string) error {
+	err := m.repo.UpdateSuggestionStatus(ctx, id, string(status), reviewerID, adminUsername)
 	if err != nil {
 		log.Printf("Error updating suggestion status in DB for ID %s: %v", id.Hex(), err)
 		return err
 	}
-	log.Printf("Updated suggestion status in DB for ID %s to %s by reviewer %d", id.Hex(), status, reviewerID)
+	log.Printf("Updated suggestion status in DB for ID %s to %s by reviewer %d (%s)", id.Hex(), status, reviewerID, adminUsername)
 	return nil
 }
 
 // DeleteSuggestion removes a suggestion from the database.
 func (m *Manager) DeleteSuggestion(ctx context.Context, id primitive.ObjectID) error {
-	// This might not be needed directly if suggestions are marked, but implemented for completeness
 	return m.repo.DeleteSuggestion(ctx, id)
-}
-
-// ProcessSuggestionCallback satisfies the database.SuggestionManager interface.
-// It delegates the call to the internal HandleCallbackQuery method.
-func (m *Manager) ProcessSuggestionCallback(ctx context.Context, query telego.CallbackQuery) (processed bool, err error) {
-	// Note: HandleCallbackQuery might need adjustments if its signature or behavior
-	// doesn't perfectly match the interface requirements (e.g., error handling).
-	return m.HandleCallbackQuery(ctx, query)
 }
 
 // processSuggestionMediaGroup is the handler function for suggestion media groups.
@@ -567,4 +621,27 @@ func (m *Manager) processFeedbackMediaGroup(ctx context.Context, groupID string,
 		log.Printf("[ProcessFeedbackMediaGroup Group:%s User:%d] Error sending confirmation: %v", groupID, userID, err)
 	}
 	return nil // Success
+}
+
+// Add HandleCombinedMediaGroup to satisfy the interface defined in handlers/interfaces.go
+func (m *Manager) HandleCombinedMediaGroup(ctx context.Context, groupID string, messages []telego.Message) error {
+	if len(messages) == 0 {
+		return errors.New("received empty media group for suggestion/feedback")
+	}
+
+	firstMessage := messages[0]
+	userID := firstMessage.From.ID
+	currentState := m.GetUserState(userID)
+
+	log.Printf("[Manager.HandleCombinedMediaGroup Group:%s] User %d State %v", groupID, userID, currentState)
+
+	switch currentState {
+	case StateAwaitingSuggestion:
+		return m.processSuggestionMediaGroup(ctx, groupID, messages)
+	case StateAwaitingFeedback:
+		return m.processFeedbackMediaGroup(ctx, groupID, messages)
+	default:
+		log.Printf("[Manager.HandleCombinedMediaGroup Group:%s] User %d state %v is not awaiting suggestion or feedback. Ignoring.", groupID, userID, currentState)
+		return nil // Not an error, just not handled here
+	}
 }

@@ -3,8 +3,10 @@ package database
 import (
 	"context"
 	"vrcmemes-bot/internal/database/models"
+	telegoapi "vrcmemes-bot/pkg/telegoapi" // Import telegoapi for BotAPI
 
 	"github.com/mymmrac/telego"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // PostLogger defines the interface for logging published posts.
@@ -26,33 +28,34 @@ type UserRepository interface {
 }
 
 // SuggestionRepository defines the interface for suggestion data operations.
-// This interface is defined in mongo_suggestion_repo.go or similar, removing redeclaration here.
-/*
+// Actual definition is likely in mongo_suggestion_repo.go or similar.
 type SuggestionRepository interface {
-	AddSuggestion(ctx context.Context, suggestion *models.Suggestion) (string, error)
-	GetSuggestionByID(ctx context.Context, id string) (*models.Suggestion, error)
-	UpdateSuggestionStatus(ctx context.Context, id string, status models.SuggestionStatus, adminID int64, adminUsername string) error
-	GetPendingSuggestions(ctx context.Context) ([]models.Suggestion, error)
+	CreateSuggestion(ctx context.Context, suggestion *models.Suggestion) error
+	GetSuggestionByID(ctx context.Context, id primitive.ObjectID) (*models.Suggestion, error)
+	UpdateSuggestionStatus(ctx context.Context, id primitive.ObjectID, status string, adminID int64, adminUsername string) error
+	GetPendingSuggestions(ctx context.Context, limit int, offset int) ([]models.Suggestion, int64, error)
+	DeleteSuggestion(ctx context.Context, id primitive.ObjectID) error
+	// Add other methods as needed
 }
-*/
 
 // CaptionProvider defines the interface for retrieving captions.
 type CaptionProvider interface {
 	RetrieveMediaGroupCaption(groupID string) string
 	GetActiveCaption(chatID int64) (string, bool)
-	ProcessSuggestionCallback(ctx context.Context, query telego.CallbackQuery) (processed bool, err error)
+	// ProcessSuggestionCallback might be part of SuggestionManager interface now
 }
 
 // CommandHandler defines the function signature for command handlers.
-type CommandHandler func(ctx context.Context, bot *telego.Bot, message telego.Message) error
+// Match the signature used in handlers.MessageHandler.GetCommandHandler
+type CommandHandler func(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error
 
 // HandlerProvider defines the interface for retrieving specific handlers.
 type HandlerProvider interface {
-	GetCommandHandler(command string) CommandHandler
-	HandlePhoto(ctx context.Context, bot *telego.Bot, message telego.Message) error
-	HandleText(ctx context.Context, bot *telego.Bot, message telego.Message) error
-	HandleVideo(ctx context.Context, bot *telego.Bot, message telego.Message) error
-	// HandleVideo(ctx context.Context, bot *telego.Bot, message telego.Message) error // Placeholder for video
+	// Use the exact type from handlers/handler.go
+	GetCommandHandler(command string) func(context.Context, telegoapi.BotAPI, telego.Message) error
+	HandlePhoto(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error
+	HandleText(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error
+	HandleVideo(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error
 }
 
 // FeedbackRepository defines the interface for feedback data operations.
@@ -62,12 +65,14 @@ type FeedbackRepository interface {
 
 // CallbackProcessor defines the interface for processing callback queries.
 type CallbackProcessor interface {
-	ProcessSuggestionCallback(ctx context.Context, query telego.CallbackQuery) (processed bool, err error)
-	// Add other callback processing methods if needed
+	// Use SuggestionManagerInterface.HandleCallbackQuery instead
+	// ProcessSuggestionCallback(ctx context.Context, query telego.CallbackQuery) (processed bool, err error)
 }
 
-// SuggestionManager defines the interface for handling suggestion interactions.
+// SuggestionManager interface might be defined in handlers/interfaces.go now
+/*
 type SuggestionManager interface {
 	HandleMessage(ctx context.Context, update telego.Update) (processed bool, err error)
-	ProcessSuggestionCallback(ctx context.Context, query telego.CallbackQuery) (processed bool, err error)
+	HandleCallbackQuery(ctx context.Context, query telego.CallbackQuery) (processed bool, err error)
 }
+*/

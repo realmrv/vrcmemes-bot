@@ -16,15 +16,14 @@ import (
 // Returns true if the callback was processed by this handler, false otherwise.
 func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.CallbackQuery) (processed bool, err error) {
 	adminID := query.From.ID
+	adminUsername := query.From.Username
 	callbackData := query.Data
 
 	if !strings.HasPrefix(callbackData, "review:") {
 		return false, nil
 	}
 
-	// Parse callback data
 	parts := strings.Split(query.Data, ":")
-
 	lang := locales.DefaultLanguage
 	if query.From.LanguageCode != "" {
 		// lang = query.From.LanguageCode // TODO: Use user language
@@ -98,15 +97,15 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 
 	switch action {
 	case "approve":
-		log.Printf("[CallbackQuery] Action: Approve for SugID %s by Admin %d", suggestionIDHex, adminID)
-		err := m.handleApproveAction(ctx, query.ID, adminID, session, currentIndex, originalReviewMessageID)
+		log.Printf("[CallbackQuery] Action: Approve for SugID %s by Admin %d (%s)", suggestionIDHex, adminID, adminUsername)
+		err := m.handleApproveAction(ctx, query.ID, adminID, adminUsername, session, currentIndex, originalReviewMessageID, suggestionID)
 		if err != nil {
 			log.Printf("[CallbackQuery] Error handling approve action: %v", err)
 			return true, err
 		}
 	case "reject":
-		log.Printf("[CallbackQuery] Action: Reject for SugID %s by Admin %d", suggestionIDHex, adminID)
-		err := m.handleRejectAction(ctx, query.ID, adminID, session, currentIndex, originalReviewMessageID)
+		log.Printf("[CallbackQuery] Action: Reject for SugID %s by Admin %d (%s)", suggestionIDHex, adminID, adminUsername)
+		err := m.handleRejectAction(ctx, query.ID, adminID, adminUsername, session, currentIndex, originalReviewMessageID, suggestionID)
 		if err != nil {
 			log.Printf("[CallbackQuery] Error handling reject action: %v", err)
 			return true, err

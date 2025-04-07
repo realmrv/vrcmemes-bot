@@ -8,6 +8,7 @@ import (
 	"time"
 	"vrcmemes-bot/internal/database/models"
 	"vrcmemes-bot/internal/locales"
+	telegoapi "vrcmemes-bot/pkg/telegoapi" // Import for BotAPI
 
 	"github.com/mymmrac/telego"
 	// th "github.com/mymmrac/telego/telegohandler" // No longer needed
@@ -16,7 +17,7 @@ import (
 
 // HandleText handles incoming text messages (excluding commands).
 // It checks if the user is an admin and then processes the text for publishing or setting as caption.
-func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleText(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	userID := message.From.ID
 	chatID := message.Chat.ID
 	localizer := h.getLocalizer(message.From) // Use helper
@@ -39,7 +40,7 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 		}
 
 		// Record activity (isAdmin assumed false here, as this is caption reply)
-		h.recordUserActivity(ctx, message.From, ActionSetCaptionReply, false, map[string]interface{}{
+		h.RecordUserActivity(ctx, message.From, ActionSetCaptionReply, false, map[string]interface{}{
 			"chat_id": chatID,
 			"caption": captionText,
 		})
@@ -106,7 +107,7 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 	}
 
 	// Record activity
-	h.recordUserActivity(ctx, message.From, ActionSendTextToChannel, isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, ActionSendTextToChannel, isAdmin, map[string]interface{}{
 		"chat_id":            chatID,
 		"text":               message.Text,
 		"channel_message_id": sentMsg.MessageID,
@@ -120,7 +121,7 @@ func (h *MessageHandler) HandleText(ctx context.Context, bot *telego.Bot, messag
 // HandlePhoto handles incoming photo messages.
 // If the user is an admin, it copies the photo message to the configured channel, applying the active caption if set.
 // It logs the action and updates user information.
-func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandlePhoto(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	// Ignore messages that are not photos (e.g., text messages with photo URLs)
 	if message.Photo == nil {
 		log.Printf("HandlePhoto called with non-photo message (ID: %d) from user %d", message.MessageID, message.From.ID)
@@ -190,7 +191,7 @@ func (h *MessageHandler) HandlePhoto(ctx context.Context, bot *telego.Bot, messa
 	}
 
 	// Record activity
-	h.recordUserActivity(ctx, message.From, ActionSendPhotoToChannel, isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, ActionSendPhotoToChannel, isAdmin, map[string]interface{}{
 		"chat_id":             message.Chat.ID,
 		"original_message_id": message.MessageID,
 		"channel_message_id":  sentMsgID.MessageID,
@@ -225,7 +226,7 @@ func (h *MessageHandler) ProcessSuggestionMessage(ctx context.Context, update te
 // HandleVideo handles incoming single video messages from admins.
 // It copies the video message to the configured channel, applying the active caption if set.
 // It logs the action and updates user information.
-func (h *MessageHandler) HandleVideo(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleVideo(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	if message.Video == nil {
 		log.Printf("HandleVideo called with non-video message (ID: %d) from user %d", message.MessageID, message.From.ID)
 		return nil
@@ -283,11 +284,11 @@ func (h *MessageHandler) HandleVideo(ctx context.Context, bot *telego.Bot, messa
 	// Log the post to the database
 	if err := h.postLogger.LogPublishedPost(logEntry); err != nil {
 		log.Printf("[HandleVideo Admin:%d] Failed attempt to log video post to DB. Error: %v", userID, err)
-		// Log only, don't fail the operation
+		// Log only, don't fail the operation for the user
 	}
 
 	// Record activity
-	h.recordUserActivity(ctx, message.From, "send_video_to_channel", isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, "send_video_to_channel", isAdmin, map[string]interface{}{
 		"chat_id":             message.Chat.ID,
 		"original_message_id": message.MessageID,
 		"channel_message_id":  sentMsgID.MessageID,
@@ -306,23 +307,4 @@ func (h *MessageHandler) HandleMediaGroup(ctx context.Context, bot *telego.Bot, 
 }
 */
 
-// sendError sends a standardized, localized error message to the user.
-func (h *MessageHandler) sendError(ctx context.Context, bot *telego.Bot, chatID int64, err error) error {
-	lang := locales.DefaultLanguage
-	// TODO: Determine language based on chatID preferences if possible
-	localizer := locales.NewLocalizer(lang)
-
-	// Log the original error for debugging
-	log.Printf("Sending error message for chat %d: %v", chatID, err)
-
-	// Send localized message to the user, potentially using the error message
-	// Note: We are using MsgErrorGeneral here, which doesn't have an {{.Error}} template.
-	// If you want to include the specific error, consider a different message ID or modifying MsgErrorGeneral.
-	msg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil) // Pass nil for data as MsgErrorGeneral doesn't use it
-
-	_, sendErr := bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
-	if sendErr != nil {
-		log.Printf("Failed to send error message to chat %d: %v", chatID, sendErr)
-	}
-	return err // Return the original error
-}
+// --- sendError Removed (defined in helpers.go) ---

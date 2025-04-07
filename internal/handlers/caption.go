@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"vrcmemes-bot/internal/locales"
+	telegoapi "vrcmemes-bot/pkg/telegoapi" // Import for BotAPI
 
 	"github.com/mymmrac/telego"
 	// th "github.com/mymmrac/telego/telegohandler" // No longer needed
@@ -14,7 +15,7 @@ import (
 // It allows admins to set or update the active caption.
 // If no text is provided after the command, it asks the user for input
 // and waits for the next text message.
-func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleCaption(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	chatID := message.Chat.ID
 	userID := message.From.ID
 	localizer := h.getLocalizer(message.From) // Use helper
@@ -45,7 +46,7 @@ func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, mes
 	h.waitingForCaption.Store(chatID, true)
 
 	// Record activity
-	h.recordUserActivity(ctx, message.From, ActionCommandCaption, isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, ActionCommandCaption, isAdmin, map[string]interface{}{
 		"chat_id": chatID,
 	})
 
@@ -56,7 +57,7 @@ func (h *MessageHandler) HandleCaption(ctx context.Context, bot *telego.Bot, mes
 
 // HandleShowCaption handles the /showcaption command.
 // It allows admins to see the currently active caption.
-func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	userID := message.From.ID
 	// --- Admin Check ---
 	isAdmin, checkErr := h.adminChecker.IsAdmin(ctx, userID) // Use checker method
@@ -109,7 +110,7 @@ func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot *telego.Bot,
 
 // HandleClearCaption handles the /clearcaption command.
 // It removes the currently set caption for the chat and confirms the action to the user.
-func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot *telego.Bot, message telego.Message) error {
+func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot telegoapi.BotAPI, message telego.Message) error {
 	chatID := message.Chat.ID
 	userID := message.From.ID
 	localizer := h.getLocalizer(message.From) // Use helper
@@ -147,7 +148,7 @@ func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot *telego.Bot
 	}
 
 	// Record activity
-	h.recordUserActivity(ctx, message.From, ActionCommandClearCaption, isAdmin, map[string]interface{}{
+	h.RecordUserActivity(ctx, message.From, ActionCommandClearCaption, isAdmin, map[string]interface{}{
 		"chat_id":     chatID,
 		"was_cleared": exists,
 	})
@@ -155,25 +156,7 @@ func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot *telego.Bot
 	return h.sendSuccess(ctx, bot, chatID, responseMsg)
 }
 
-// GetActiveCaption retrieves the currently active caption for a specific chat ID.
-// It returns the caption string and a boolean indicating if a caption was found.
-// This uses a sync.Map for thread-safe access.
-func (h *MessageHandler) GetActiveCaption(chatID int64) (string, bool) {
-	caption, ok := h.activeCaptions.Load(chatID)
-	if !ok {
-		return "", false // No caption found for this chat ID
-	}
-
-	capStr, okStr := caption.(string)
-	if !okStr {
-		// This indicates a potential issue, the value stored was not a string
-		log.Printf("WARN: Invalid type stored in activeCaptions for chat ID %d: expected string, got %T", chatID, caption)
-		h.activeCaptions.Delete(chatID) // Clean up invalid entry
-		return "", false
-	}
-
-	return capStr, true
-}
+// --- GetActiveCaption Removed (defined in helpers.go) ---
 
 // setActiveCaption is unused because caption setting now happens directly via h.activeCaptions.Store
 

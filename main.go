@@ -176,7 +176,14 @@ func main() {
 		log.Fatalf("Failed to create telego bot: %v", err)
 	}
 
+	// 1.5 Get updates channel BEFORE creating components that need the BotAPI interface
+	updatesChan, err := bot.UpdatesViaLongPolling(ctx, nil)
+	if err != nil {
+		log.Fatalf("Failed to get updates channel: %v", err)
+	}
+
 	// 2. Setup Core Bot Components (Checker, Manager, Handler)
+	// Pass the concrete *telego.Bot to components that need it for specific methods
 	_, suggestionManager, messageHandler, err := setupBotComponents(
 		cfg, bot, suggestionRepo, userActionLogger, postLogger, userRepo, feedbackRepo, mediaGroupMgr,
 	)
@@ -186,10 +193,10 @@ func main() {
 	}
 
 	// 3. Create the Bot Application Wrapper
-	// Note: We now pass specific dependencies to New, not the whole messageHandler
-	// Need to adjust BotDeps and New in bot/bot.go accordingly if not done yet.
+	// Pass the updatesChan to BotDeps
 	appBotDeps := telegoBot.BotDeps{
-		Bot:           bot,
+		Bot:           bot,         // Pass the concrete bot as BotAPI
+		UpdatesChan:   updatesChan, // Pass the channel
 		Debug:         cfg.Debug,
 		ChannelID:     cfg.ChannelID,
 		CaptionProv:   messageHandler, // Assuming MessageHandler implements CaptionProvider
@@ -200,11 +207,12 @@ func main() {
 		UserRepo:      userRepo,
 		ActionLogger:  userActionLogger,
 		MediaGroupMgr: mediaGroupMgr,
+		Handler:       messageHandler, // Pass concrete handler
 	}
 	appBot, err := telegoBot.New(appBotDeps)
 	if err != nil {
 		sentry.CaptureException(err)
-		log.Fatalf("Failed to create application bot wrapper: %v", err) // Updated error message
+		log.Fatalf("Failed to create application bot wrapper: %v", err)
 	}
 
 	// Start the bot wrapper's processing loop
@@ -214,7 +222,8 @@ func main() {
 	<-ctx.Done()
 
 	log.Println("Shutting down bot...")
-	// Stop the bot wrapper gracefully
+	// Stop the bot wrapper gracefully (appBot.Stop() might need context or other changes)
+	// No need to call bot.StopLongPolling() here, context cancellation handles it.
 	appBot.Stop()
 
 	// Stop media group timers

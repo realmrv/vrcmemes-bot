@@ -89,14 +89,15 @@ func (r *MongoSuggestionRepository) GetSuggestionByID(ctx context.Context, id pr
 	return &suggestion, nil
 }
 
-// UpdateSuggestionStatus updates the status and reviewer info of a suggestion.
-func (r *MongoSuggestionRepository) UpdateSuggestionStatus(ctx context.Context, id primitive.ObjectID, status string, reviewerID int64) error {
+// UpdateSuggestionStatus updates the status, reviewer ID, and reviewer username of a suggestion.
+func (r *MongoSuggestionRepository) UpdateSuggestionStatus(ctx context.Context, id primitive.ObjectID, status string, reviewerID int64, reviewerUsername string) error {
 	filter := bson.M{"_id": id}
 	update := bson.M{
 		"$set": bson.M{
-			"status":      status,
-			"reviewed_by": reviewerID,
-			"reviewed_at": time.Now(),
+			"status":            status,
+			"reviewed_by":       reviewerID,
+			"reviewer_username": reviewerUsername,
+			"reviewed_at":       time.Now(),
 		},
 	}
 

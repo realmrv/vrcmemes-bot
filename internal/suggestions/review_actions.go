@@ -9,21 +9,27 @@ import (
 
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // handleApproveAction approves a suggestion, posts it, cleans up messages, and proceeds.
-func (m *Manager) handleApproveAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, index int, _ int /* reviewMessageID - no longer needed directly */) error {
-	suggestion := session.Suggestions[index]
+func (m *Manager) handleApproveAction(ctx context.Context, queryID string, adminID int64, adminUsername string, session *ReviewSession, index int, _ int, suggestionID primitive.ObjectID) error {
 	localizer := locales.NewLocalizer(locales.DefaultLanguage) // TODO: Use admin lang pref
 
 	// Approve and publish
-	dbErr := m.UpdateSuggestionStatus(ctx, suggestion.ID, models.StatusApproved, adminID)
-	publishErr := m.publishSuggestion(ctx, suggestion)
+	dbErr := m.UpdateSuggestionStatus(ctx, suggestionID, models.StatusApproved, adminID, adminUsername)
+	// Find the full suggestion details for publishing
+	suggestion, errFind := m.GetSuggestionByID(ctx, suggestionID)
+	if errFind != nil {
+		log.Printf("[ApproveAction] Could not find suggestion %s for publishing after DB update: %v", suggestionID.Hex(), errFind)
+		// Handle this error - maybe rollback status or just log?
+	}
+	publishErr := m.publishSuggestion(ctx, *suggestion)
 
 	// Determine response message
 	var responseMsg string
 	if publishErr != nil {
-		log.Printf("[ApproveAction] Error publishing suggestion %s: %v", suggestion.ID.Hex(), publishErr)
+		log.Printf("[ApproveAction] Error publishing suggestion %s: %v", suggestionID.Hex(), publishErr)
 		responseMsg = locales.GetMessage(localizer, "MsgReviewErrorDuringPublishing", nil, nil)
 		if dbErr != nil {
 			// Append DB error suffix if both failed
@@ -63,17 +69,16 @@ func (m *Manager) handleApproveAction(ctx context.Context, queryID string, admin
 }
 
 // handleRejectAction rejects a suggestion, cleans up messages, and proceeds.
-func (m *Manager) handleRejectAction(ctx context.Context, queryID string, adminID int64, session *ReviewSession, index int, _ int /* reviewMessageID - no longer needed directly */) error {
-	suggestion := session.Suggestions[index]
+func (m *Manager) handleRejectAction(ctx context.Context, queryID string, adminID int64, adminUsername string, session *ReviewSession, index int, _ int, suggestionID primitive.ObjectID) error {
 	localizer := locales.NewLocalizer(locales.DefaultLanguage) // TODO: Use admin lang pref
 
 	// Reject suggestion in DB
-	dbErr := m.UpdateSuggestionStatus(ctx, suggestion.ID, models.StatusRejected, adminID)
+	dbErr := m.UpdateSuggestionStatus(ctx, suggestionID, models.StatusRejected, adminID, adminUsername)
 
 	// Determine response message
 	responseMsg := locales.GetMessage(localizer, "MsgReviewActionRejected", nil, nil)
 	if dbErr != nil {
-		log.Printf("[RejectAction] Error updating suggestion %s status to rejected: %v", suggestion.ID.Hex(), dbErr)
+		log.Printf("[RejectAction] Error updating suggestion %s status to rejected: %v", suggestionID.Hex(), dbErr)
 		responseMsg += locales.GetMessage(localizer, "MsgErrorDBUpdateFailedSuffix", nil, nil)
 	}
 
