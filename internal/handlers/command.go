@@ -8,11 +8,13 @@ import (
 	"strings"
 	"vrcmemes-bot/internal/locales"
 	telegoapi "vrcmemes-bot/pkg/telegoapi" // Import for BotAPI
+	"vrcmemes-bot/pkg/utils"               // Import utils package
 
 	// Add import for bot package
 	// "time" // time is not used directly in this file after logger refactoring
 
 	"github.com/mymmrac/telego"
+	"github.com/mymmrac/telego/telegoutil"
 )
 
 // HandleStart handles the /start command.
@@ -38,7 +40,18 @@ func (h *MessageHandler) HandleStart(ctx context.Context, bot telegoapi.BotAPI, 
 	// Get the localized start message
 	startMsg := locales.GetMessage(localizer, "MsgStart", nil, nil)
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, startMsg)
+	// Escape text for MarkdownV2 and send welcome message
+	params := &telego.SendMessageParams{
+		ChatID:    telegoutil.ID(message.Chat.ID),
+		Text:      utils.EscapeMarkdownV2(startMsg),
+		ParseMode: telego.ModeMarkdownV2,
+	}
+	_, err := bot.SendMessage(ctx, params)
+	if err != nil {
+		log.Printf("Error sending start message to chat %d: %v", message.Chat.ID, err)
+		return nil // Logged error, follow sendSuccess pattern
+	}
+	return nil
 }
 
 // HandleHelp handles the /help command.
@@ -92,7 +105,21 @@ func (h *MessageHandler) HandleHelp(ctx context.Context, bot telegoapi.BotAPI, m
 		"is_admin": isAdmin, // Log admin status used for help message
 	})
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, helpText.String())
+	// Escape text for MarkdownV2 and send help message
+	escapedHelpText := utils.EscapeMarkdownV2(helpText.String())
+	params := &telego.SendMessageParams{
+		ChatID:    telegoutil.ID(message.Chat.ID),
+		Text:      escapedHelpText,
+		ParseMode: telego.ModeMarkdownV2,
+	}
+	_, err := bot.SendMessage(ctx, params)
+	if err != nil {
+		log.Printf("Error sending help message to chat %d: %v", message.Chat.ID, err)
+		// Return nil to follow sendError/sendSuccess pattern (error is logged)
+		return nil
+	}
+
+	return nil
 }
 
 // HandleStatus handles the /status command.
@@ -116,7 +143,20 @@ func (h *MessageHandler) HandleStatus(ctx context.Context, bot telegoapi.BotAPI,
 		"caption": caption, // Log the caption that was active
 	})
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, statusText)
+	// Escape text for MarkdownV2 and send status message
+	params := &telego.SendMessageParams{
+		ChatID:    telegoutil.ID(message.Chat.ID),
+		Text:      utils.EscapeMarkdownV2(statusText), // Escape the status text
+		ParseMode: telego.ModeMarkdownV2,
+	}
+	_, err := bot.SendMessage(ctx, params)
+	if err != nil {
+		log.Printf("Error sending status message to chat %d: %v", message.Chat.ID, err)
+		// Return nil to follow sendError/sendSuccess pattern (error is logged)
+		return nil
+	}
+
+	return nil
 }
 
 // HandleVersion handles the /version command.
@@ -145,7 +185,18 @@ func (h *MessageHandler) HandleVersion(ctx context.Context, bot telegoapi.BotAPI
 		"version": version,
 	})
 
-	return h.sendSuccess(ctx, bot, message.Chat.ID, versionText)
+	// Escape text for MarkdownV2 and send version message
+	params := &telego.SendMessageParams{
+		ChatID:    telegoutil.ID(message.Chat.ID),
+		Text:      utils.EscapeMarkdownV2(versionText),
+		ParseMode: telego.ModeMarkdownV2,
+	}
+	_, err := bot.SendMessage(ctx, params)
+	if err != nil {
+		log.Printf("Error sending version message to chat %d: %v", message.Chat.ID, err)
+		return nil // Logged error, follow sendSuccess pattern
+	}
+	return nil
 }
 
 // HandleSuggest handles the /suggest command by calling the suggestion manager.

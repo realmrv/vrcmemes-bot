@@ -73,15 +73,15 @@
   },
   {
     "id": "MsgHelpFooterAdmin",
-    "translation": "\\n\\n🖼️ Send me a photo or text to publish. Use /caption [text] to add a caption to the next message."
+    "translation": "🖼️ Send me a photo or text to publish. Use /caption [text] to add a caption to the next message."
   },
   {
     "id": "MsgHelpFooterUser",
-    "translation": "\\n\\n✍️ Use /suggest to propose a post for publication."
+    "translation": "✍️ Use /suggest to propose a post for publication."
   },
   {
     "id": "MsgStatus",
-    "translation": "ℹ️ Bot running\\n📢 Channel ID: {{.ChannelID}}\\n✍️ Current caption: {{.Caption}}"
+    "translation": "ℹ️ Bot running\n📢 Channel ID: {{.ChannelID}}\n✍️ Current caption: {{.Caption}}"
   },
   {
     "id": "MsgVersion",
@@ -225,7 +225,7 @@
   },
   {
     "id": "MsgReviewSuggestionDetails",
-    "translation": "👤 From: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})\\n📝 Comment: `{{.Comment}}`"
+    "translation": "👤 From: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})\n📝 Comment: `{{.Comment}}`"
   },
   {
     "id": "MsgSuggestErrorCheckingSubscription",

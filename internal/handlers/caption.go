@@ -6,8 +6,10 @@ import (
 	"log"
 	"vrcmemes-bot/internal/locales"
 	telegoapi "vrcmemes-bot/pkg/telegoapi" // Import for BotAPI
+	"vrcmemes-bot/pkg/utils"
 
 	"github.com/mymmrac/telego"
+	"github.com/mymmrac/telego/telegoutil"
 	// th "github.com/mymmrac/telego/telegohandler" // No longer needed
 )
 
@@ -52,7 +54,18 @@ func (h *MessageHandler) HandleCaption(ctx context.Context, bot telegoapi.BotAPI
 
 	// Send prompt message using localized text
 	promptMsg := locales.GetMessage(localizer, "MsgCaptionPrompt", nil, nil)
-	return h.sendSuccess(ctx, bot, chatID, promptMsg)
+	// Use direct SendMessage with escaping, assuming prompt might contain special chars
+	params := &telego.SendMessageParams{
+		ChatID:    telegoutil.ID(chatID),
+		Text:      utils.EscapeMarkdownV2(promptMsg),
+		ParseMode: telego.ModeMarkdownV2,
+	}
+	_, err = bot.SendMessage(ctx, params)
+	if err != nil {
+		log.Printf("Error sending caption prompt message to chat %d: %v", chatID, err)
+		return nil // Logged error
+	}
+	return nil
 }
 
 // HandleShowCaption handles the /showcaption command.
@@ -105,7 +118,23 @@ func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot telegoapi.Bo
 		log.Printf("Failed to log show_caption action for user %d: %v", userID, err)
 	}
 
-	return h.sendSuccess(ctx, bot, chatID, msg)
+	// Escape text for MarkdownV2 and send the message
+	escapedMsg := utils.EscapeMarkdownV2(msg)
+	params := &telego.SendMessageParams{
+		ChatID:    telegoutil.ID(chatID),
+		Text:      escapedMsg,
+		ParseMode: telego.ModeMarkdownV2,
+	}
+	_, sendErr := bot.SendMessage(ctx, params)
+	if sendErr != nil {
+		log.Printf("Error sending show caption message to chat %d: %v", chatID, sendErr)
+		// Log error, but maybe still return the logging error?
+		// For consistency, returning nil after logging.
+		return nil
+	}
+
+	// Return the original logging error if it occurred, otherwise nil
+	return err // Return the logging error
 }
 
 // HandleClearCaption handles the /clearcaption command.
@@ -153,7 +182,19 @@ func (h *MessageHandler) HandleClearCaption(ctx context.Context, bot telegoapi.B
 		"was_cleared": exists,
 	})
 
-	return h.sendSuccess(ctx, bot, chatID, responseMsg)
+	// Escape text for MarkdownV2 and send confirmation message
+	escapedResponseMsg := utils.EscapeMarkdownV2(responseMsg)
+	params := &telego.SendMessageParams{
+		ChatID:    telegoutil.ID(chatID),
+		Text:      escapedResponseMsg,
+		ParseMode: telego.ModeMarkdownV2,
+	}
+	_, err = bot.SendMessage(ctx, params)
+	if err != nil {
+		log.Printf("Error sending clear caption confirmation to chat %d: %v", chatID, err)
+		return nil // Logged error
+	}
+	return nil
 }
 
 // --- GetActiveCaption Removed (defined in helpers.go) ---

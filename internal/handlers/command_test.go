@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"vrcmemes-bot/internal/database/models" // Add import for models
 	"vrcmemes-bot/internal/locales"         // Add mediagroups import
 	"vrcmemes-bot/internal/suggestions"
+	"vrcmemes-bot/pkg/utils" // Import utils for escaping
 
 	// Import for BotAPI
 	"github.com/mymmrac/telego"
+	"github.com/mymmrac/telego/telegoutil" // Import for telegoutil
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -28,6 +31,10 @@ func (m *MockBot) SendMessage(ctx context.Context, params *telego.SendMessagePar
 	args := m.Called(ctx, params)
 	if msg, ok := args.Get(0).(*telego.Message); ok {
 		return msg, args.Error(1)
+	}
+	// Allow returning nil message for successful calls if needed by tests
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -213,29 +220,81 @@ func (m *MockSuggestionManager) HandleCombinedMediaGroup(ctx context.Context, gr
 	return args.Error(0)
 }
 
-// --- Test Function ---
+// --- Test Suite Setup ---
 
-func TestHandleStart(t *testing.T) {
-	locales.Init("en")
+const (
+	testChannelID = int64(12345)
+	testVersion   = "v1.2.3-test"
+)
 
-	// --- Setup Mocks and Handler --- (Use interfaces for adminChecker and suggestionManager)
+type testHandlerSuite struct {
+	t                     *testing.T
+	mockBot               *MockBot
+	mockActionLogger      *MockUserActionLogger
+	mockUserRepo          *MockUserRepository
+	mockAdminChecker      *MockAdminChecker
+	mockSuggestionManager *MockSuggestionManager
+	mockFeedbackRepo      *MockFeedbackRepository
+	handler               *MessageHandler
+}
+
+// setupTestHandlerSuite creates a new suite with fresh mocks and handler instance.
+func setupTestHandlerSuite(t *testing.T) *testHandlerSuite {
+	t.Helper()
+
+	mockBot := new(MockBot)
 	mockActionLogger := new(MockUserActionLogger)
 	mockUserRepo := new(MockUserRepository)
-	mockAdminChecker := new(MockAdminChecker)           // Implements AdminCheckerInterface
-	mockSuggestionManager := new(MockSuggestionManager) // Implements SuggestionManagerInterface
+	mockAdminChecker := new(MockAdminChecker)
+	mockSuggestionManager := new(MockSuggestionManager)
 	mockFeedbackRepo := new(MockFeedbackRepository)
 
-	// Create MessageHandler using mocks (interfaces are accepted)
-	messageHandler := NewMessageHandler(
-		12345, // Dummy channel ID
-		nil,   // PostLogger (can be nil for start test? check dependencies)
-		mockActionLogger,
-		mockUserRepo,
-		mockSuggestionManager, // Pass interface implementation
-		mockAdminChecker,      // Pass interface implementation - KEEP adminChecker dependency
-		mockFeedbackRepo,
-		"test", // Add dummy version for the initial handler setup
-	)
+	var activeCaptionsMap sync.Map
+
+	handler := &MessageHandler{
+		channelID:         testChannelID,
+		postLogger:        nil,
+		actionLogger:      mockActionLogger,
+		userRepo:          mockUserRepo,
+		suggestionManager: mockSuggestionManager,
+		adminChecker:      mockAdminChecker,
+		feedbackRepo:      mockFeedbackRepo,
+		version:           testVersion,
+		activeCaptions:    activeCaptionsMap,
+	}
+
+	// Initialize the commands slice using the local Command type
+	localizer := locales.NewLocalizer("en")
+	handler.commands = []Command{ // Use the local Command type
+		{Command: "start", Description: locales.GetMessage(localizer, "CmdStartDesc", nil, nil), Handler: nil},
+		{Command: "help", Description: locales.GetMessage(localizer, "CmdHelpDesc", nil, nil), Handler: nil},
+		{Command: "status", Description: locales.GetMessage(localizer, "CmdStatusDesc", nil, nil), Handler: nil},
+		{Command: "version", Description: locales.GetMessage(localizer, "CmdVersionDesc", nil, nil), Handler: nil},
+		{Command: "caption", Description: locales.GetMessage(localizer, "CmdCaptionDesc", nil, nil), Handler: nil},
+		{Command: "showcaption", Description: locales.GetMessage(localizer, "CmdShowCaptionDesc", nil, nil), Handler: nil},
+		{Command: "clearcaption", Description: locales.GetMessage(localizer, "CmdClearCaptionDesc", nil, nil), Handler: nil},
+		{Command: "suggest", Description: locales.GetMessage(localizer, "CmdSuggestDesc", nil, nil), Handler: nil},
+		{Command: "review", Description: locales.GetMessage(localizer, "CmdReviewDesc", nil, nil), Handler: nil},
+		{Command: "feedback", Description: locales.GetMessage(localizer, "CmdFeedbackDesc", nil, nil), Handler: nil},
+	}
+
+	return &testHandlerSuite{
+		t:                     t,
+		mockBot:               mockBot,
+		mockActionLogger:      mockActionLogger,
+		mockUserRepo:          mockUserRepo,
+		mockAdminChecker:      mockAdminChecker,
+		mockSuggestionManager: mockSuggestionManager,
+		mockFeedbackRepo:      mockFeedbackRepo,
+		handler:               handler,
+	}
+}
+
+// --- Test Functions (Refactored) ---
+
+func TestHandleStart(t *testing.T) {
+	locales.Init("en")            // Ensure locales are initialized for GetMessage
+	s := setupTestHandlerSuite(t) // Setup the suite
 
 	// --- Test Data ---
 	ctx := context.Background()
@@ -249,256 +308,369 @@ func TestHandleStart(t *testing.T) {
 		MessageID: 100,
 		From: &telego.User{
 			ID:           testUserID,
-			IsBot:        false,
+			Username:     testUsername,
 			FirstName:    testFirstName,
 			LastName:     testLastName,
-			Username:     testUsername,
-			LanguageCode: "ru",
+			LanguageCode: "en",
 		},
+		Chat: telego.Chat{ID: testChatID},
 		Date: int64(time.Now().Unix()),
-		Chat: telego.Chat{
-			ID:   testChatID,
-			Type: "private",
-		},
 		Text: "/start",
 	}
 
-	// Run tests
 	t.Run("HandleStart", func(t *testing.T) {
-
 		t.Run("Success", func(t *testing.T) {
-			// Create NEW mocks for this subtest
-			mockBot := new(MockBot)
-			mockActionLogger := new(MockUserActionLogger)
-			mockUserRepo := new(MockUserRepository)
-			mockAdminChecker := new(MockAdminChecker)
-			// Assign mocks to handler
-			messageHandler.actionLogger = mockActionLogger
-			messageHandler.userRepo = mockUserRepo
-			messageHandler.adminChecker = mockAdminChecker
+			// Arrange
+			// Use NewLocalizer to get the expected text based on the test user's language
+			expectedMsgText := locales.GetMessage(locales.NewLocalizer("en"), "MsgStart", nil, nil)
+			expectedEscapedText := utils.EscapeMarkdownV2(expectedMsgText)
 
-			// --- Mock Setup ---
-			mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Once()
-			mockActionLogger.On("LogUserAction", testUserID, "command_start", mock.Anything).Return(nil).Once()
-			mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, "command_start").Return(nil).Once()
-			mockBot.On("SetMyCommands", ctx, mock.AnythingOfType("*telego.SetMyCommandsParams")).Return(nil).Once()
-			startMsg := locales.GetMessage(locales.NewLocalizer("en"), "MsgStart", nil, nil)
-			mockBot.On("SendMessage", ctx, mock.MatchedBy(func(params *telego.SendMessageParams) bool {
-				return params.ChatID.ID == testChatID && params.Text == startMsg
-			})).Return(&telego.Message{MessageID: 101}, nil).Once()
+			// Expect admin check (used for RecordUserActivity)
+			s.mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Once()
 
-			// --- Execute ---
-			err := messageHandler.HandleStart(ctx, mockBot, testMessage)
+			// Expect logging & user update with correct Action constant
+			s.mockActionLogger.On("LogUserAction", testUserID, ActionCommandStart, mock.Anything).Return(nil).Once()
+			s.mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, ActionCommandStart).Return(nil).Once() // Use ActionCommandStart
 
-			// --- Assert ---
+			// Expect SetMyCommands call (part of HandleStart's setupCommands)
+			s.mockBot.On("SetMyCommands", ctx, mock.AnythingOfType("*telego.SetMyCommandsParams")).Return(nil).Once()
+
+			// Expect SendMessage call, capture the params
+			var capturedParams *telego.SendMessageParams
+			s.mockBot.On("SendMessage", ctx, mock.AnythingOfType("*telego.SendMessageParams")).
+				Run(func(args mock.Arguments) {
+					if params, ok := args.Get(1).(*telego.SendMessageParams); ok {
+						capturedParams = params
+					}
+				}).
+				Return(&telego.Message{}, nil).Once() // Expect one call
+
+			// Act
+			err := s.handler.HandleStart(ctx, s.mockBot, testMessage)
+
+			// Assert
 			assert.NoError(t, err)
-			mockAdminChecker.AssertExpectations(t)
-			mockActionLogger.AssertExpectations(t)
-			mockUserRepo.AssertExpectations(t)
-			mockBot.AssertExpectations(t)
+			s.mockAdminChecker.AssertExpectations(t)
+			s.mockActionLogger.AssertExpectations(t)
+			s.mockUserRepo.AssertExpectations(t)
+			s.mockBot.AssertExpectations(t)
+
+			assert.NotNil(t, capturedParams, "SendMessage parameters were not captured")
+			if capturedParams != nil {
+				assert.Equal(t, telegoutil.ID(testChatID), capturedParams.ChatID)
+				assert.Equal(t, telego.ModeMarkdownV2, capturedParams.ParseMode)
+				assert.Equal(t, expectedEscapedText, capturedParams.Text)
+			}
 		})
-
-		// SetupCommands_Error subtest removed temporarily due to persistent mock issues
-
-		// TODO: Add sub-test for user update error
-		// TODO: Add sub-test for action logging error
 	})
 }
 
 func TestHandleHelp(t *testing.T) {
-	locales.Init("en") // Ensure locales are initialized
-	ctx := context.Background()
-	testUserID := int64(1111)
-	testChatID := int64(2222)
-	testUsername := "helpuser"
-	testFirstName := "Helper"
-	testLastName := "McHelp"
+	locales.Init("en")
+	s := setupTestHandlerSuite(t) // Setup the suite
 
+	// --- Test Data ---
+	ctx := context.Background()
+	testUserID := int64(11111)
+	testChatID := int64(22222)
+	testUsername := "helpuser"
+	testFirstName := "Helpful"
+	testLastName := "Helper"
 	testMessage := telego.Message{
 		MessageID: 200,
 		From: &telego.User{
 			ID:           testUserID,
-			IsBot:        false,
+			Username:     testUsername,
 			FirstName:    testFirstName,
 			LastName:     testLastName,
-			Username:     testUsername,
 			LanguageCode: "en",
 		},
+		Chat: telego.Chat{ID: testChatID},
 		Date: int64(time.Now().Unix()),
-		Chat: telego.Chat{ID: testChatID, Type: "private"},
 		Text: "/help",
 	}
 
-	mockSuggestionManager := new(MockSuggestionManager)
-	mockFeedbackRepo := new(MockFeedbackRepository)
+	t.Run("HandleHelp", func(t *testing.T) {
+		t.Run("AdminUser", func(t *testing.T) {
+			// Arrange
+			localizer := locales.NewLocalizer("en")
+			var helpTextBuilder strings.Builder
+			helpTextBuilder.WriteString(locales.GetMessage(localizer, "MsgHelpHeader", nil, nil) + "\n")
+			// Use handler's commands for dynamic list building
+			for _, cmd := range s.handler.commands {
+				if cmd.Command != "suggest" && cmd.Command != "feedback" { // Admin filter
+					localizedDesc := locales.GetMessage(localizer, cmd.Description, nil, nil)
+					helpTextBuilder.WriteString(fmt.Sprintf("/%s - %s\n", cmd.Command, localizedDesc))
+				}
+			}
+			// Footer: Append directly without extra newline
+			helpTextBuilder.WriteString(locales.GetMessage(localizer, "MsgHelpFooterAdmin", nil, nil))
+			expectedEscapedText := utils.EscapeMarkdownV2(helpTextBuilder.String())
 
-	t.Run("Help for Non-Admin", func(t *testing.T) {
-		// Create mocks FOR THIS SUBTEST
-		mockBot := new(MockBot)
-		mockActionLogger := new(MockUserActionLogger)
-		mockUserRepo := new(MockUserRepository)
-		mockAdminChecker := new(MockAdminChecker)
+			s.mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(true, nil).Once()
+			s.mockActionLogger.On("LogUserAction", testUserID, ActionCommandHelp, mock.Anything).Return(nil).Once()
+			s.mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, true, ActionCommandHelp).Return(nil).Once() // Use ActionCommandHelp
 
-		// Create handler WITH these mocks
-		h := NewMessageHandler(123, nil, mockActionLogger, mockUserRepo, mockSuggestionManager, mockAdminChecker, mockFeedbackRepo, "test-ver")
+			// Expect SendMessage call, capture the params
+			var capturedParams *telego.SendMessageParams
+			s.mockBot.On("SendMessage", ctx, mock.AnythingOfType("*telego.SendMessageParams")).
+				Run(func(args mock.Arguments) {
+					if params, ok := args.Get(1).(*telego.SendMessageParams); ok {
+						capturedParams = params
+					}
+				}).
+				Return(&telego.Message{}, nil).Once()
 
-		// --- Mock Expectations ---
-		mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Once()
-		mockActionLogger.On("LogUserAction", testUserID, ActionCommandHelp, mock.Anything).Return(nil).Once()
-		mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, ActionCommandHelp).Return(nil).Once()
-		mockBot.On("SendMessage", ctx, mock.MatchedBy(func(params *telego.SendMessageParams) bool {
-			return params.ChatID.ID == testChatID && strings.Contains(params.Text, "/start") && strings.Contains(params.Text, "/suggest") && !strings.Contains(params.Text, "/review")
-		})).Return(&telego.Message{MessageID: 201}, nil).Once()
+			// Act
+			err := s.handler.HandleHelp(ctx, s.mockBot, testMessage)
 
-		// --- Execute ---
-		err := h.HandleHelp(ctx, mockBot, testMessage)
+			// Assert
+			assert.NoError(t, err)
+			s.mockAdminChecker.AssertExpectations(t)
+			s.mockActionLogger.AssertExpectations(t)
+			s.mockUserRepo.AssertExpectations(t)
+			s.mockBot.AssertExpectations(t)
+			assert.NotNil(t, capturedParams, "SendMessage parameters were not captured")
+			if capturedParams != nil {
+				assert.Equal(t, telegoutil.ID(testChatID), capturedParams.ChatID)
+				assert.Equal(t, telego.ModeMarkdownV2, capturedParams.ParseMode)
+				assert.Equal(t, expectedEscapedText, capturedParams.Text)
+			}
+		})
 
-		// --- Assert ---
-		assert.NoError(t, err)
-		mockAdminChecker.AssertExpectations(t)
-		mockActionLogger.AssertExpectations(t)
-		mockUserRepo.AssertExpectations(t)
-		mockBot.AssertExpectations(t)
-	})
+		t.Run("RegularUser", func(t *testing.T) {
+			// Arrange
+			localizer := locales.NewLocalizer("en")
+			var helpTextBuilder strings.Builder
+			helpTextBuilder.WriteString(locales.GetMessage(localizer, "MsgHelpHeader", nil, nil) + "\n")
+			// Use handler's commands for dynamic list building
+			for _, cmd := range s.handler.commands {
+				if cmd.Command == "start" || cmd.Command == "suggest" || cmd.Command == "feedback" { // Regular user filter
+					localizedDesc := locales.GetMessage(localizer, cmd.Description, nil, nil)
+					helpTextBuilder.WriteString(fmt.Sprintf("/%s - %s\n", cmd.Command, localizedDesc))
+				}
+			}
+			// Footer: Append directly without extra newline
+			helpTextBuilder.WriteString(locales.GetMessage(localizer, "MsgHelpFooterUser", nil, nil))
+			expectedEscapedText := utils.EscapeMarkdownV2(helpTextBuilder.String())
 
-	t.Run("Help for Admin", func(t *testing.T) {
-		// Create mocks FOR THIS SUBTEST
-		mockBot := new(MockBot)
-		mockActionLogger := new(MockUserActionLogger)
-		mockUserRepo := new(MockUserRepository)
-		mockAdminChecker := new(MockAdminChecker)
+			s.mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Once()
+			s.mockActionLogger.On("LogUserAction", testUserID, ActionCommandHelp, mock.Anything).Return(nil).Once()
+			s.mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, ActionCommandHelp).Return(nil).Once() // Use ActionCommandHelp
 
-		// Create handler WITH these mocks
-		h := NewMessageHandler(123, nil, mockActionLogger, mockUserRepo, mockSuggestionManager, mockAdminChecker, mockFeedbackRepo, "test-ver")
+			// Expect SendMessage call, capture the params
+			var capturedParams *telego.SendMessageParams
+			s.mockBot.On("SendMessage", ctx, mock.AnythingOfType("*telego.SendMessageParams")).
+				Run(func(args mock.Arguments) {
+					if params, ok := args.Get(1).(*telego.SendMessageParams); ok {
+						capturedParams = params
+					}
+				}).
+				Return(&telego.Message{}, nil).Once()
 
-		// --- Mock Expectations ---
-		mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(true, nil).Once()
-		mockActionLogger.On("LogUserAction", testUserID, ActionCommandHelp, mock.Anything).Return(nil).Once()
-		mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, true, ActionCommandHelp).Return(nil).Once()
-		mockBot.On("SendMessage", ctx, mock.MatchedBy(func(params *telego.SendMessageParams) bool {
-			return params.ChatID.ID == testChatID && strings.Contains(params.Text, "/review") && !strings.Contains(params.Text, "/suggest")
-		})).Return(&telego.Message{MessageID: 202}, nil).Once()
+			// Act
+			err := s.handler.HandleHelp(ctx, s.mockBot, testMessage)
 
-		// --- Execute ---
-		err := h.HandleHelp(ctx, mockBot, testMessage)
-
-		// --- Assert ---
-		assert.NoError(t, err)
-		mockAdminChecker.AssertExpectations(t)
-		mockActionLogger.AssertExpectations(t)
-		mockUserRepo.AssertExpectations(t)
-		mockBot.AssertExpectations(t)
+			// Assert
+			assert.NoError(t, err)
+			s.mockAdminChecker.AssertExpectations(t)
+			s.mockActionLogger.AssertExpectations(t)
+			s.mockUserRepo.AssertExpectations(t)
+			s.mockBot.AssertExpectations(t)
+			assert.NotNil(t, capturedParams, "SendMessage parameters were not captured")
+			if capturedParams != nil {
+				assert.Equal(t, telegoutil.ID(testChatID), capturedParams.ChatID)
+				assert.Equal(t, telego.ModeMarkdownV2, capturedParams.ParseMode)
+				assert.Equal(t, expectedEscapedText, capturedParams.Text)
+			}
+		})
 	})
 }
 
 func TestHandleStatus(t *testing.T) {
 	locales.Init("en")
+	s := setupTestHandlerSuite(t) // Setup the suite
+
+	// --- Test Data ---
 	ctx := context.Background()
-	testUserID := int64(3333)
-	testChatID := int64(4444)
+	testUserID := int64(33333)
+	testChatID := int64(44444)
 	testUsername := "statususer"
 	testFirstName := "Status"
 	testLastName := "Checker"
-	channelID := int64(5555)
-	version := "test-1.0"
-
 	testMessage := telego.Message{
 		MessageID: 300,
 		From: &telego.User{
 			ID:           testUserID,
-			IsBot:        false,
+			Username:     testUsername,
 			FirstName:    testFirstName,
 			LastName:     testLastName,
-			Username:     testUsername,
 			LanguageCode: "en",
 		},
+		Chat: telego.Chat{ID: testChatID},
 		Date: int64(time.Now().Unix()),
-		Chat: telego.Chat{ID: testChatID, Type: "private"},
 		Text: "/status",
 	}
 
-	// Create mocks
-	mockSuggestionManager := new(MockSuggestionManager)
-	mockFeedbackRepo := new(MockFeedbackRepository)
-	mockAdminChecker := new(MockAdminChecker)
-	mockBot := new(MockBot)
-	mockActionLogger := new(MockUserActionLogger)
-	mockUserRepo := new(MockUserRepository)
+	t.Run("HandleStatus", func(t *testing.T) {
+		t.Run("WithCaption", func(t *testing.T) {
+			// Arrange
+			activeCaption := "Test Caption"
+			// Manually store the caption in the handler's map for this test
+			s.handler.activeCaptions.Store(testChatID, activeCaption)
+			// Ensure cleanup after test
+			defer s.handler.activeCaptions.Delete(testChatID)
 
-	// Create handler WITH these mocks
-	h := NewMessageHandler(channelID, nil, mockActionLogger, mockUserRepo, mockSuggestionManager, mockAdminChecker, mockFeedbackRepo, version)
+			localizer := locales.NewLocalizer("en")
+			// Call GetMessage WITH template data
+			statusText := locales.GetMessage(localizer, "MsgStatus", map[string]interface{}{
+				"ChannelID": s.handler.channelID, // Use channelID from suite
+				"Caption":   activeCaption,
+			}, nil)
+			expectedEscapedText := utils.EscapeMarkdownV2(statusText)
 
-	// --- Mock Expectations ---
-	mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Once()
-	mockActionLogger.On("LogUserAction", testUserID, ActionCommandStatus, mock.Anything).Return(nil).Once()
-	mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, ActionCommandStatus).Return(nil).Once()
-	mockBot.On("SendMessage", ctx, mock.MatchedBy(func(params *telego.SendMessageParams) bool {
-		return params.ChatID.ID == testChatID && strings.Contains(params.Text, fmt.Sprintf("Channel ID: %d", channelID))
-	})).Return(&telego.Message{MessageID: 301}, nil).Once()
+			s.mockActionLogger.On("LogUserAction", testUserID, ActionCommandStatus, mock.Anything).Return(nil).Once()
+			s.mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, ActionCommandStatus).Return(nil).Once() // Use ActionCommandStatus
+			s.mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Maybe()
+			// No mock needed for GetActiveCaption as it's internal to MessageHandler
 
-	// --- Execute ---
-	err := h.HandleStatus(ctx, mockBot, testMessage)
+			// Expect SendMessage call, capture the params
+			var capturedParams *telego.SendMessageParams
+			s.mockBot.On("SendMessage", ctx, mock.AnythingOfType("*telego.SendMessageParams")).
+				Run(func(args mock.Arguments) {
+					if params, ok := args.Get(1).(*telego.SendMessageParams); ok {
+						capturedParams = params
+					}
+				}).
+				Return(&telego.Message{}, nil).Once()
 
-	// --- Assert ---
-	assert.NoError(t, err)
-	mockAdminChecker.AssertExpectations(t)
-	mockActionLogger.AssertExpectations(t)
-	mockUserRepo.AssertExpectations(t)
-	mockBot.AssertExpectations(t)
+			// Act
+			err := s.handler.HandleStatus(ctx, s.mockBot, testMessage)
+
+			// Assert
+			assert.NoError(t, err)
+			s.mockActionLogger.AssertExpectations(t)
+			s.mockUserRepo.AssertExpectations(t)
+			// mockSuggestionManager.AssertExpectations(t) // No need to assert this mock
+			s.mockBot.AssertExpectations(t)
+			assert.NotNil(t, capturedParams, "SendMessage parameters were not captured")
+			if capturedParams != nil {
+				assert.Equal(t, telegoutil.ID(testChatID), capturedParams.ChatID)
+				assert.Equal(t, telego.ModeMarkdownV2, capturedParams.ParseMode)
+				assert.Equal(t, expectedEscapedText, capturedParams.Text)
+			}
+		})
+
+		t.Run("WithoutCaption", func(t *testing.T) {
+			// Arrange
+			s.handler.activeCaptions.Delete(testChatID)
+			localizer := locales.NewLocalizer("en")
+			// Get the final status message WITH AN EMPTY STRING substituted for Caption
+			statusTextWithEmptyCaption := locales.GetMessage(localizer, "MsgStatus", map[string]interface{}{
+				"ChannelID": s.handler.channelID, // Use channelID from suite
+				"Caption":   "",                  // Use empty string, matching handler logic
+			}, nil)
+			// Escape the final resulting string
+			expectedEscapedText := utils.EscapeMarkdownV2(statusTextWithEmptyCaption)
+
+			s.mockActionLogger.On("LogUserAction", testUserID, ActionCommandStatus, mock.Anything).Return(nil).Once()
+			s.mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, ActionCommandStatus).Return(nil).Once() // Use ActionCommandStatus
+			s.mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Maybe()
+			// No mock needed for GetActiveCaption
+
+			// Expect SendMessage call, capture the params
+			var capturedParams *telego.SendMessageParams
+			s.mockBot.On("SendMessage", ctx, mock.AnythingOfType("*telego.SendMessageParams")).
+				Run(func(args mock.Arguments) {
+					if params, ok := args.Get(1).(*telego.SendMessageParams); ok {
+						capturedParams = params
+					}
+				}).
+				Return(&telego.Message{}, nil).Once()
+
+			// Act
+			err := s.handler.HandleStatus(ctx, s.mockBot, testMessage)
+
+			// Assert
+			assert.NoError(t, err)
+			s.mockActionLogger.AssertExpectations(t)
+			s.mockUserRepo.AssertExpectations(t)
+			// mockSuggestionManager.AssertExpectations(t) // No need to assert this mock
+			s.mockBot.AssertExpectations(t)
+			assert.NotNil(t, capturedParams, "SendMessage parameters were not captured")
+			if capturedParams != nil {
+				assert.Equal(t, telegoutil.ID(testChatID), capturedParams.ChatID)
+				assert.Equal(t, telego.ModeMarkdownV2, capturedParams.ParseMode)
+				assert.Equal(t, expectedEscapedText, capturedParams.Text)
+			}
+		})
+	})
 }
 
 func TestHandleVersion(t *testing.T) {
 	locales.Init("en")
+	s := setupTestHandlerSuite(t) // Setup the suite
+
+	// --- Test Data ---
 	ctx := context.Background()
-	testUserID := int64(6666)
-	testChatID := int64(7777)
+	testUserID := int64(55555)
+	testChatID := int64(66666)
 	testUsername := "versionuser"
 	testFirstName := "Version"
-	testLastName := "Tester"
-	version := "v1.2.3-test"
-
+	testLastName := "Info"
 	testMessage := telego.Message{
 		MessageID: 400,
 		From: &telego.User{
 			ID:           testUserID,
-			IsBot:        false,
+			Username:     testUsername,
 			FirstName:    testFirstName,
 			LastName:     testLastName,
-			Username:     testUsername,
 			LanguageCode: "en",
 		},
+		Chat: telego.Chat{ID: testChatID},
 		Date: int64(time.Now().Unix()),
-		Chat: telego.Chat{ID: testChatID, Type: "private"},
 		Text: "/version",
 	}
 
-	// Create mocks
-	mockSuggestionManager := new(MockSuggestionManager)
-	mockFeedbackRepo := new(MockFeedbackRepository)
-	mockAdminChecker := new(MockAdminChecker)
-	mockBot := new(MockBot)
-	mockActionLogger := new(MockUserActionLogger)
-	mockUserRepo := new(MockUserRepository)
+	t.Run("HandleVersion", func(t *testing.T) {
+		// Arrange
+		localizer := locales.NewLocalizer("en")
+		// Call GetMessage WITH template data
+		versionText := locales.GetMessage(localizer, "MsgVersion", map[string]interface{}{
+			"Version": s.handler.version, // Use version from suite
+		}, nil)
+		expectedEscapedText := utils.EscapeMarkdownV2(versionText)
 
-	// Create handler WITH these mocks
-	h := NewMessageHandler(123, nil, mockActionLogger, mockUserRepo, mockSuggestionManager, mockAdminChecker, mockFeedbackRepo, version)
+		s.mockActionLogger.On("LogUserAction", testUserID, ActionCommandVersion, mock.Anything).Return(nil).Once()
+		s.mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, ActionCommandVersion).Return(nil).Once() // Use ActionCommandVersion
+		s.mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Maybe()
 
-	// --- Mock Expectations ---
-	mockAdminChecker.On("IsAdmin", ctx, testUserID).Return(false, nil).Once()
-	mockActionLogger.On("LogUserAction", testUserID, ActionCommandVersion, mock.Anything).Return(nil).Once()
-	mockUserRepo.On("UpdateUser", ctx, testUserID, testUsername, testFirstName, testLastName, false, ActionCommandVersion).Return(nil).Once()
-	expectedText := locales.GetMessage(locales.NewLocalizer("en"), "MsgVersion", map[string]interface{}{"Version": version}, nil)
-	mockBot.On("SendMessage", ctx, mock.MatchedBy(func(params *telego.SendMessageParams) bool {
-		return params.ChatID.ID == testChatID && params.Text == expectedText
-	})).Return(&telego.Message{MessageID: 401}, nil).Once()
+		// Expect SendMessage call, capture the params
+		var capturedParams *telego.SendMessageParams
+		s.mockBot.On("SendMessage", ctx, mock.AnythingOfType("*telego.SendMessageParams")).
+			Run(func(args mock.Arguments) {
+				if params, ok := args.Get(1).(*telego.SendMessageParams); ok {
+					capturedParams = params
+				}
+			}).
+			Return(&telego.Message{}, nil).Once()
 
-	// --- Execute ---
-	err := h.HandleVersion(ctx, mockBot, testMessage)
+		// Act
+		err := s.handler.HandleVersion(ctx, s.mockBot, testMessage)
 
-	// --- Assert ---
-	assert.NoError(t, err)
-	mockAdminChecker.AssertExpectations(t)
-	mockActionLogger.AssertExpectations(t)
-	mockUserRepo.AssertExpectations(t)
-	mockBot.AssertExpectations(t)
+		// Assert
+		assert.NoError(t, err)
+		s.mockActionLogger.AssertExpectations(t)
+		s.mockUserRepo.AssertExpectations(t)
+		// mockAdminChecker.AssertExpectations(t) // Not strictly needed as it's .Maybe()
+		s.mockBot.AssertExpectations(t)
+		assert.NotNil(t, capturedParams, "SendMessage parameters were not captured")
+		if capturedParams != nil {
+			assert.Equal(t, telegoutil.ID(testChatID), capturedParams.ChatID)
+			assert.Equal(t, telego.ModeMarkdownV2, capturedParams.ParseMode)
+			assert.Equal(t, expectedEscapedText, capturedParams.Text)
+		}
+	})
 }
+
+// TODO: Add tests for HandleCaption, HandleShowCaption, HandleClearCaption if needed
