@@ -143,7 +143,7 @@ func (b *Bot) handleCommandUpdate(ctx context.Context, message telego.Message) {
 	} else {
 		log.Printf("%s No handler found", logPrefix)
 		// Send localized "unknown command" message
-		lang := locales.DefaultLanguage // Default to Russian
+		lang := locales.GetDefaultLanguageTag().String() // Use tag
 		if message.From != nil && message.From.LanguageCode != "" {
 			// lang = message.From.LanguageCode
 		}
@@ -217,7 +217,7 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, query telego.CallbackQuer
 	if b.debug {
 		log.Printf("%s Received callback query with data: %q", logPrefix, query.Data)
 	}
-	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String()) // Use tag
 
 	// Delegate to suggestion manager
 	processed, err := b.suggestionMgr.HandleCallbackQuery(ctx, query)
@@ -503,5 +503,46 @@ func (b *Bot) handleAdminMediaGroup(ctx context.Context, groupID string, message
 	confirmationMsg := locales.GetMessage(localizer, "MsgPostSentToChannel", nil, nil)
 	_, _ = b.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), confirmationMsg))
 
+	return nil
+}
+
+func (b *Bot) setupCommands(ctx context.Context) error {
+	// Get commands from handler provider
+	// Assuming GetCommandHandler("") returns metadata for all commands or similar
+	// This logic needs clarification based on HandlerProvider implementation.
+	// For now, manually define commands:
+
+	defaultLang := locales.GetDefaultLanguageTag().String() // Use tag
+	localizer := locales.NewLocalizer(defaultLang)
+
+	cmds := []telego.BotCommand{
+		{
+			Command:     "start",
+			Description: locales.GetMessage(localizer, "CmdStartDescription", nil, nil),
+		},
+		{
+			Command:     "help",
+			Description: locales.GetMessage(localizer, "CmdHelpDescription", nil, nil),
+		},
+		{
+			Command:     "settings",
+			Description: locales.GetMessage(localizer, "CmdSettingsDescription", nil, nil),
+		},
+	}
+
+	// TODO: Add other commands as needed (feedback, stats, etc.)
+
+	// Set the commands using the correct parameters struct
+	params := &telego.SetMyCommandsParams{
+		Commands: cmds,
+		// Scope: telego.BotCommandScopeDefault{}, // Default scope
+		// LanguageCode: "", // Default language
+	}
+	err := b.bot.SetMyCommands(ctx, params) // Correct call, returns only error
+	if err != nil {
+		return fmt.Errorf("failed to set bot commands: %w", err)
+	}
+
+	log.Println("Bot commands successfully set.")
 	return nil
 }

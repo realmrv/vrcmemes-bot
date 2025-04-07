@@ -1,91 +1,91 @@
 [
   {
     "id": "MsgErrorGeneral",
-    "translation": "An error occurred. Please try again."
+    "translation": "⚠️ An error occurred. Please try again."
   },
   {
     "id": "MsgErrorRequiresAdmin",
-    "translation": "This command is only available to administrators."
+    "translation": "⛔ This command is only available to administrators."
   },
   {
     "id": "MsgSuccessGeneric",
-    "translation": "Done!"
+    "translation": "✅ Done!"
   },
   {
     "id": "MsgPostSentToChannel",
-    "translation": "Post sent to the channel."
+    "translation": "✅ Post sent to the channel."
   },
   {
     "id": "MsgErrorSendToChannel",
-    "translation": "Failed to send the message to the channel."
+    "translation": "❌ Failed to send the message to the channel."
   },
   {
     "id": "MsgCaptionSetConfirmation",
-    "translation": "Caption set. It will be added to the next photo/video/group."
+    "translation": "✍️ Caption set. It will be added to the next photo/video/group."
   },
   {
     "id": "MsgCaptionOverwriteConfirmation",
-    "translation": "Caption updated."
+    "translation": "✍️ Caption updated."
   },
   {
     "id": "MsgCaptionAskForInput",
-    "translation": "Please enter the new caption:"
+    "translation": "💬 Please enter the new caption:"
   },
   {
-    "id": "MsgCaptionClearedConfirmation",
-    "translation": "Caption cleared."
+    "id": "MsgCaptionCleared",
+    "translation": "🗑️ Caption cleared."
   },
   {
     "id": "MsgCaptionShowCurrent",
-    "translation": "Current caption: `{{.Caption}}`"
+    "translation": "👀 Current caption: `{{.Caption}}`"
   },
   {
     "id": "MsgCaptionShowEmpty",
-    "translation": "No active caption is set."
+    "translation": "🤷 No active caption is set."
   },
   {
     "id": "MsgSuggestRequiresSubscription",
-    "translation": "To suggest a post, you must be a channel subscriber. Subscribe and try again."
+    "translation": "🔒 To suggest a post, you must be a channel subscriber. Subscribe and try again."
   },
   {
     "id": "MsgSuggestSendContentPrompt",
-    "translation": "Okay! Now send me ONE message with a photo (or multiple photos as a media group, up to 10). The message text will be saved as the suggestion's comment (visible only to admins)."
+    "translation": "👍 Okay! Now send me ONE message with a photo (or multiple photos as a media group, up to 10). The message text will be saved as the suggestion's comment (visible only to admins)."
   },
   {
     "id": "MsgSuggestAlreadyWaitingForContent",
-    "translation": "I'm already waiting for content for your suggestion. Please send it."
+    "translation": "⏳ I'm already waiting for content for your suggestion. Please send it."
   },
   {
     "id": "MsgSuggestionReceivedConfirmation",
-    "translation": "Thank you! Your suggestion has been received and will be reviewed by the administration."
+    "translation": "📬 Thank you! Your suggestion has been received and will be reviewed by the administration."
   },
   {
     "id": "MsgSuggestionRequiresPhoto",
-    "translation": "Please send a message with a photo (or a media group of photos). The text will be used as a comment."
+    "translation": "🖼️ Please send a message with a photo (or a media group of photos). The text will be used as a comment."
   },
   {
     "id": "MsgStart",
-    "translation": "Hi! I'm a bot for posting memes to the channel. Send me a photo or text, and I'll post it."
+    "translation": "👋 Hi! I'm a bot for posting memes to the channel. Send me a photo or text, and I'll post it."
   },
   {
     "id": "MsgHelpHeader",
-    "translation": "Available commands:"
+    "translation": "📜 Available commands:"
   },
   {
     "id": "MsgHelpFooterAdmin",
-    "translation": "\n\nSend me a photo or text to publish. Use /caption [text] to add a caption to the next message."
+    "translation": "\\n\\n🖼️ Send me a photo or text to publish. Use /caption [text] to add a caption to the next message."
   },
   {
     "id": "MsgHelpFooterUser",
-    "translation": "\n\nUse /suggest to propose a post for publication."
+    "translation": "\\n\\n✍️ Use /suggest to propose a post for publication."
   },
   {
     "id": "MsgStatus",
-    "translation": "Bot running\nChannel ID: {{.ChannelID}}\nCurrent caption: {{.Caption}}"
+    "translation": "ℹ️ Bot running\\n📢 Channel ID: {{.ChannelID}}\\n✍️ Current caption: {{.Caption}}"
   },
   {
     "id": "MsgVersion",
-    "translation": "Bot version: {{.Version}}"
+    "translation": "⚙️ Bot version: {{.Version}}"
   },
   {
     "id": "MsgErrorUnknownCommand",
@@ -93,159 +93,159 @@
   },
   {
     "id": "MsgErrorNotImplemented",
-    "translation": "This feature is not implemented yet."
+    "translation": "🚧 This feature is not implemented yet."
   },
   {
     "id": "CmdStartDesc",
-    "translation": "Starts the bot"
+    "translation": "🚀 Starts the bot"
   },
   {
     "id": "CmdHelpDesc",
-    "translation": "Shows this help message"
+    "translation": "❓ Shows this help message"
   },
   {
     "id": "CmdStatusDesc",
-    "translation": "Shows bot status and your ID"
+    "translation": "📊 Shows bot status and your ID"
   },
   {
     "id": "CmdVersionDesc",
-    "translation": "Shows the bot version"
+    "translation": "⚙️ Shows the bot version"
   },
   {
     "id": "CmdCaptionDesc",
-    "translation": "Set or update the caption for the next photo group"
+    "translation": "✍️ Set or update the caption for the next photo group"
   },
   {
     "id": "CmdShowCaptionDesc",
-    "translation": "Show the current active caption"
+    "translation": "👀 Show the current active caption"
   },
   {
     "id": "CmdClearCaptionDesc",
-    "translation": "Clear the current active caption"
+    "translation": "🗑️ Clear the current active caption"
   },
   {
     "id": "CmdSuggestDesc",
-    "translation": "Suggest a post for publication"
+    "translation": "📬 Suggest a post for publication"
   },
   {
     "id": "CmdReviewDesc",
-    "translation": "[Admin] Review the queue of suggested posts"
+    "translation": "🧑‍⚖️ [Admin] Review the queue of suggested posts"
   },
   {
     "id": "MsgReviewSessionExpired",
-    "translation": "Review session expired or suggestion outdated. Please use /review again."
+    "translation": "⏳ Review session expired or suggestion outdated. Please use /review again."
   },
   {
     "id": "MsgErrorDBUpdateFailedSuffix",
-    "translation": " (DB status update failed)"
+    "translation": " (⚠️ DB status update failed)"
   },
   {
     "id": "MsgReviewFrom",
-    "translation": "From: {{.FirstName}} \\(@{{.Username}}, ID: {{.UserID}}\\)"
+    "translation": "👤 From: {{.FirstName}} \\\\(@{{.Username}}, ID: {{.UserID}}\\\\)"
   },
   {
     "id": "MsgReviewCaption",
-    "translation": "Caption: {{.Caption}}"
+    "translation": "📝 Caption: {{.Caption}}"
   },
   {
     "id": "MsgReviewErrorLoadMedia",
-    "translation": "*Error:* Could not load media for suggestion `{{.SuggestionID}}`."
+    "translation": "🖼️ *Error:* Could not load media for suggestion `{{.SuggestionID}}`."
   },
   {
     "id": "MsgReviewActionApprovedWithDBError",
-    "translation": "Suggestion approved and published (DB status update failed)."
+    "translation": "✅ Suggestion approved and published (⚠️ DB status update failed)."
   },
   {
     "id": "MsgReviewSessionStarting",
-    "translation": "Review command received, starting review session..."
+    "translation": "⏳ Review command received, starting review session..."
   },
   {
     "id": "MsgReviewErrorStartingSession",
-    "translation": "Error starting review session."
+    "translation": "❌ Error starting review session."
   },
   {
     "id": "MsgReviewNoCaptionPlaceholder",
-    "translation": "_No caption_"
+    "translation": "✍️ _No caption_"
   },
   {
     "id": "MsgReviewNoUsernamePlaceholder",
-    "translation": "_(no username)_"
+    "translation": "👤 _(no username)_"
   },
   {
     "id": "MsgReviewCaptionPrefix",
-    "translation": "Caption:"
+    "translation": "📝 Caption:"
   },
   {
     "id": "MsgCaptionForMediaGroup",
-    "translation": "Caption '{{.Caption}}' will be used for this media group."
+    "translation": "✍️ Caption '{{.Caption}}' will be used for this media group."
   },
   {
     "id": "MsgCaptionNoneToClear",
-    "translation": "No active caption to clear."
+    "translation": "🤷 No active caption to clear."
   },
   {
     "id": "MsgErrorCaptionNotSet",
-    "translation": "Caption not set."
+    "translation": "❌ Caption not set."
   },
   {
     "id": "MsgErrorGenericWithArg",
-    "translation": "An error occurred: {{.Error}}"
+    "translation": "⚠️ An error occurred: {{.Error}}"
   },
   {
     "id": "MsgErrorInternalServer",
-    "translation": "Internal server error."
+    "translation": "🔥 Internal server error."
   },
   {
     "id": "MsgErrorNoMediaGroup",
-    "translation": "Could not find media group for this caption."
+    "translation": "❌ Could not find media group for this caption."
   },
   {
     "id": "MsgMediaGroupSuccess",
-    "translation": "Media group published to the channel."
+    "translation": "✅ Media group published to the channel."
   },
   {
     "id": "MsgReviewActionApproved",
-    "translation": "Suggestion approved and published."
+    "translation": "✅ Suggestion approved and published."
   },
   {
     "id": "MsgReviewActionRejected",
-    "translation": "Suggestion rejected."
+    "translation": "❌ Suggestion rejected."
   },
   {
     "id": "MsgReviewCurrentSuggestionIndex",
-    "translation": "Suggestion {{.Index}} of {{.Total}}"
+    "translation": "📄 Suggestion {{.Index}} of {{.Total}}"
   },
   {
     "id": "MsgReviewErrorDuringPublishing",
-    "translation": "Error publishing approved suggestion."
+    "translation": "⚠️ Error publishing approved suggestion."
   },
   {
     "id": "MsgReviewQueueIsEmpty",
-    "translation": "Suggestion queue is empty."
+    "translation": "📭 Suggestion queue is empty."
   },
   {
     "id": "MsgReviewSuggestionDetails",
-    "translation": "From: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})\\nComment: `{{.Comment}}`"
+    "translation": "👤 From: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})\\n📝 Comment: `{{.Comment}}`"
   },
   {
     "id": "MsgSuggestErrorCheckingSubscription",
-    "translation": "Failed to check your subscription status. Please try again later."
+    "translation": "⚠️ Failed to check your subscription status. Please try again later."
   },
   {
     "id": "MsgSuggestInternalProcessingError",
-    "translation": "An internal error occurred while processing your request. Please try again later."
+    "translation": "🔥 An internal error occurred while processing your request. Please try again later."
   },
   {
     "id": "MsgSuggestionMediaGroupPartReceived",
-    "translation": "Received part of the media group. Waiting for the rest..."
+    "translation": "⏳ Received part of the media group. Waiting for the rest..."
   },
   {
     "id": "MsgSuggestionMediaGroupProcessingError",
-    "translation": "Error processing media group for suggestion."
+    "translation": "❌ Error processing media group for suggestion."
   },
   {
     "id": "MsgSuggestionTooManyPhotosError",
-    "translation": "You can attach a maximum of 10 photos to one suggestion."
+    "translation": "🚫 You can attach a maximum of 10 photos to one suggestion."
   },
   {
     "id": "BtnApprove",
@@ -265,38 +265,38 @@
   },
   {
     "id": "MsgCaptionPrompt",
-    "translation": "Enter the caption to be added to the next post:"
+    "translation": "💬 Enter the caption to be added to the next post:"
   },
   {
     "id": "CmdFeedbackDesc",
-    "translation": "Send feedback or suggestion"
+    "translation": "📨 Send feedback or suggestion"
   },
   {
     "id": "MsgFeedbackPrompt",
-    "translation": "Please send your feedback or suggestion. You can attach up to 10 photos/videos."
+    "translation": "✍️ Please send your feedback or suggestion. You can attach up to 10 photos/videos."
   },
   {
     "id": "MsgFeedbackAlreadyWaiting",
-    "translation": "I am already waiting for your feedback. Please send it."
+    "translation": "⏳ I am already waiting for your feedback. Please send it."
   },
   {
     "id": "MsgFeedbackReceivedConfirmation",
-    "translation": "Thank you for your feedback!"
+    "translation": "✅ Thank you for your feedback!"
   },
   {
     "id": "MsgFeedbackRequiresContent",
-    "translation": "Please send feedback text or attach media."
+    "translation": "📝 Please send feedback text or attach media."
   },
   {
     "id": "MsgFeedbackMediaGroupPartReceived",
-    "translation": "Received part of the media group for feedback. Waiting for the rest..."
+    "translation": "⏳ Received part of the media group for feedback. Waiting for the rest..."
   },
   {
     "id": "MsgSuggestForUsersOnly",
-    "translation": "This command is intended for subscribers only."
+    "translation": "🔒 This command is intended for subscribers only."
   },
   {
     "id": "MsgFeedbackForUsersOnly",
-    "translation": "Administrators cannot send feedback using this command."
+    "translation": "🔒 Administrators cannot send feedback using this command."
   }
 ]

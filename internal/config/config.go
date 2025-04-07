@@ -19,6 +19,7 @@ type Config struct {
 	SentryDSN       string
 	MongoDBURI      string
 	MongoDBDatabase string
+	DefaultLanguage string
 }
 
 // LoadConfig loads configuration from environment variables.
@@ -49,6 +50,7 @@ func LoadConfig() (*Config, error) {
 		SentryDSN:       getEnv("SENTRY_DSN", ""),
 		MongoDBURI:      getEnv("MONGODB_URI", ""), // URI might be complex, handle validation carefully if needed
 		MongoDBDatabase: getEnv("MONGODB_DATABASE", ""),
+		DefaultLanguage: getEnv("BOT_DEFAULT_LANGUAGE", "en"),
 	}
 
 	// Basic validation for essential variables

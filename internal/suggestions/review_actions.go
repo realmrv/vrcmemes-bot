@@ -14,7 +14,7 @@ import (
 
 // handleApproveAction approves a suggestion, posts it, cleans up messages, and proceeds.
 func (m *Manager) handleApproveAction(ctx context.Context, queryID string, adminID int64, adminUsername string, session *ReviewSession, index int, _ int, suggestionID primitive.ObjectID) error {
-	localizer := locales.NewLocalizer(locales.DefaultLanguage) // TODO: Use admin lang pref
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String()) // Use tag
 
 	// Approve and publish
 	dbErr := m.UpdateSuggestionStatus(ctx, suggestionID, models.StatusApproved, adminID, adminUsername)
@@ -70,7 +70,7 @@ func (m *Manager) handleApproveAction(ctx context.Context, queryID string, admin
 
 // handleRejectAction rejects a suggestion, cleans up messages, and proceeds.
 func (m *Manager) handleRejectAction(ctx context.Context, queryID string, adminID int64, adminUsername string, session *ReviewSession, index int, _ int, suggestionID primitive.ObjectID) error {
-	localizer := locales.NewLocalizer(locales.DefaultLanguage) // TODO: Use admin lang pref
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String()) // Use tag
 
 	// Reject suggestion in DB
 	dbErr := m.UpdateSuggestionStatus(ctx, suggestionID, models.StatusRejected, adminID, adminUsername)
@@ -182,7 +182,7 @@ func (m *Manager) sendNextOrFinishReview(ctx context.Context, adminID int64, ses
 		delete(m.reviewSessions, adminID) // Delete the session
 
 		m.reviewSessionsMutex.Unlock()
-		lang := locales.DefaultLanguage
+		lang := locales.GetDefaultLanguageTag().String()
 		localizer := locales.NewLocalizer(lang)
 		queueEmptyMsg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
 		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(session.ReviewChatID), queueEmptyMsg))

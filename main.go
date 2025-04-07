@@ -125,7 +125,7 @@ func main() {
 	}
 
 	// Initialize localization
-	locales.Init()
+	locales.Init(cfg.DefaultLanguage)
 
 	// Initialize Sentry
 	if err = initSentry(cfg); err != nil {

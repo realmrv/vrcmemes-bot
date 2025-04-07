@@ -73,7 +73,7 @@ func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot telegoapi.Bo
 
 	if !isAdmin {
 		log.Printf("User %d (not admin) attempted to use /showcaption.", userID)
-		lang := locales.DefaultLanguage
+		lang := locales.GetDefaultLanguageTag().String()
 		localizer := locales.NewLocalizer(lang)
 		msg := locales.GetMessage(localizer, "MsgErrorRequiresAdmin", nil, nil)
 		return h.sendError(ctx, bot, message.Chat.ID, errors.New(msg))
@@ -83,7 +83,7 @@ func (h *MessageHandler) HandleShowCaption(ctx context.Context, bot telegoapi.Bo
 	chatID := message.Chat.ID
 	captionText, exists := h.GetActiveCaption(chatID)
 
-	lang := locales.DefaultLanguage
+	lang := locales.GetDefaultLanguageTag().String()
 	if message.From != nil && message.From.LanguageCode != "" {
 		// lang = message.From.LanguageCode // Keep default for now
 	}

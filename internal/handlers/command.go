@@ -255,7 +255,7 @@ func (h *MessageHandler) setupCommands(ctx context.Context, bot telegoapi.BotAPI
 	}
 
 	// Create a localizer for the default language to translate descriptions
-	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
 
 	commands := make([]telego.BotCommand, 0, len(h.commands)) // Initialize with capacity
 	for _, cmd := range h.commands {

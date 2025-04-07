@@ -102,7 +102,7 @@ func (m *Manager) HandleSuggestCommand(ctx context.Context, update telego.Update
 	userID := update.Message.From.ID
 
 	// Default to Russian
-	lang := locales.DefaultLanguage
+	lang := locales.GetDefaultLanguageTag().String()
 	localizer := locales.NewLocalizer(lang)
 
 	if m.GetUserState(userID) == StateAwaitingSuggestion {
@@ -173,7 +173,7 @@ func (m *Manager) HandleMessage(ctx context.Context, update telego.Update) (proc
 func (m *Manager) handleSuggestionContent(ctx context.Context, message *telego.Message) (processed bool, err error) {
 	userID := message.From.ID
 	chatID := message.Chat.ID
-	localizer := locales.NewLocalizer(locales.DefaultLanguage) // Assuming default lang for now
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
 
 	// Handle Media Group for Suggestion
 	if message.MediaGroupID != "" {
@@ -279,7 +279,7 @@ func extractFeedbackContent(message *telego.Message) (text string, photoIDs []st
 func (m *Manager) handleFeedbackContent(ctx context.Context, message *telego.Message) (processed bool, err error) {
 	userID := message.From.ID
 	chatID := message.Chat.ID
-	localizer := locales.NewLocalizer(locales.DefaultLanguage) // Assuming default lang for now
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
 	mediaGroupID := message.MediaGroupID
 
 	// --- Handle Media Group for Feedback ---
@@ -361,7 +361,7 @@ func (m *Manager) HandleFeedbackCommand(ctx context.Context, update telego.Updat
 
 	chatID := update.Message.Chat.ID
 	userID := update.Message.From.ID
-	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
 
 	// Set user state to await feedback content
 	m.SetUserState(userID, StateAwaitingFeedback)
@@ -501,7 +501,7 @@ func (m *Manager) processSuggestionMediaGroup(ctx context.Context, groupID strin
 	firstMessage := msgs[0]
 	userID := firstMessage.From.ID
 	chatID := firstMessage.Chat.ID
-	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
 
 	log.Printf("[ProcessSuggestionMediaGroup Group:%s User:%d] Processing %d messages.", groupID, userID, len(msgs))
 
@@ -563,7 +563,7 @@ func (m *Manager) processFeedbackMediaGroup(ctx context.Context, groupID string,
 	firstMessage := msgs[0]
 	userID := firstMessage.From.ID
 	chatID := firstMessage.Chat.ID
-	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
 
 	log.Printf("[ProcessFeedbackMediaGroup Group:%s User:%d] Processing %d messages.", groupID, userID, len(msgs))
 

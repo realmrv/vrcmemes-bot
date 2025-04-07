@@ -24,10 +24,7 @@ func (m *Manager) HandleCallbackQuery(ctx context.Context, query telego.Callback
 	}
 
 	parts := strings.Split(query.Data, ":")
-	lang := locales.DefaultLanguage
-	if query.From.LanguageCode != "" {
-		// lang = query.From.LanguageCode // TODO: Use user language
-	}
+	lang := locales.GetDefaultLanguageTag().String()
 	localizer := locales.NewLocalizer(lang)
 
 	if len(parts) != 4 {

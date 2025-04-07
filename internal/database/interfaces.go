@@ -35,6 +35,7 @@ type SuggestionRepository interface {
 	UpdateSuggestionStatus(ctx context.Context, id primitive.ObjectID, status string, adminID int64, adminUsername string) error
 	GetPendingSuggestions(ctx context.Context, limit int, offset int) ([]models.Suggestion, int64, error)
 	DeleteSuggestion(ctx context.Context, id primitive.ObjectID) error
+	ResetDailyLimits(ctx context.Context) error
 	// Add other methods as needed
 }
 

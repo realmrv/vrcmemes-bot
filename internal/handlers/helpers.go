@@ -27,9 +27,8 @@ func (h *MessageHandler) sendError(ctx context.Context, bot telegoapi.BotAPI, ch
 	// Log the original error for debugging
 	log.Printf("Error for user in chat %d: %v", chatID, originalErr)
 
-	// Attempt to send a generic, localized error message to the user
-	// TODO: Determine user language correctly if possible
-	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+	// Attempt to send a generic, localized error message using the default language
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
 	errMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
 
 	_, sendErr := bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errMsg))
@@ -41,18 +40,15 @@ func (h *MessageHandler) sendError(ctx context.Context, bot telegoapi.BotAPI, ch
 	return originalErr
 }
 
-// getLocalizer determines the best localizer for a given user.
-// Currently, it defaults to Russian if the user object is nil or language code is empty/unsupported.
+// getLocalizer returns a localizer configured *only* for the default language
+// specified by the BOT_DEFAULT_LANGUAGE environment variable.
+// It ignores the user's Telegram client language setting.
 func (h *MessageHandler) getLocalizer(user *telego.User) *i18n.Localizer {
-	lang := locales.DefaultLanguage
-	if user != nil && user.LanguageCode != "" {
-		// Check if the language is supported by looking at loaded tags
-		// We need to access the bundle directly for this, which is not ideal from here.
-		// Let's assume NewLocalizer handles fallback gracefully for now.
-		// TODO: Refactor language checking if needed
-		lang = user.LanguageCode // Pass the user's code to NewLocalizer
-	}
-	return locales.NewLocalizer(lang)
+	defaultLang := locales.GetDefaultLanguageTag().String()
+	// Always return a localizer for the default language.
+	// The `langPrefs` argument in NewLocalizer determines the priority.
+	// By only passing the default language, we ensure it's always used.
+	return locales.NewLocalizer(defaultLang)
 }
 
 // recordUserActivity combines updating user info and logging the action.

@@ -126,3 +126,14 @@ func (r *MongoSuggestionRepository) DeleteSuggestion(ctx context.Context, id pri
 	}
 	return nil
 }
+
+// ResetDailyLimits is intended to reset daily submission counters if they exist in the Suggestion model.
+// Currently, the Suggestion model doesn't have daily limit fields, so this is a placeholder.
+func (r *MongoSuggestionRepository) ResetDailyLimits(ctx context.Context) error {
+	// Placeholder implementation
+	// If Suggestion model had fields like `daily_submissions`, this method would update them.
+	// Example (hypothetical): update := bson.M{"$set": bson.M{"daily_submissions": 0}}
+	// _, err := r.collection.UpdateMany(ctx, bson.M{}, update)
+	// return err
+	return nil // No-op for now
+}

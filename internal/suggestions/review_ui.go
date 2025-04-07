@@ -21,7 +21,7 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 
 	if !ok || suggestionIndex < 0 || suggestionIndex >= len(session.Suggestions) {
 		log.Printf("[SendReviewMessage] Invalid session or index for admin %d, index %d", adminID, suggestionIndex)
-		lang := locales.DefaultLanguage
+		lang := locales.GetDefaultLanguageTag().String()
 		localizer := locales.NewLocalizer(lang)
 		msg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
 		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
@@ -34,7 +34,7 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	suggestion := session.Suggestions[suggestionIndex]
 	totalSuggestionsInBatch := len(session.Suggestions)
 
-	lang := locales.DefaultLanguage
+	lang := locales.GetDefaultLanguageTag().String()
 	localizer := locales.NewLocalizer(lang)
 
 	// Build the message text using the dedicated helper function

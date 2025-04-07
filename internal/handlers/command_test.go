@@ -215,7 +215,7 @@ func (m *MockSuggestionManager) HandleCombinedMediaGroup(ctx context.Context, gr
 // --- Test Function ---
 
 func TestHandleStart(t *testing.T) {
-	locales.Init()
+	locales.Init("en")
 
 	// --- Setup Mocks and Handler --- (Use interfaces for adminChecker and suggestionManager)
 	mockActionLogger := new(MockUserActionLogger)

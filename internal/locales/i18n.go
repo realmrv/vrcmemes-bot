@@ -10,17 +10,24 @@ import (
 	"golang.org/x/text/language"
 )
 
-// DefaultLanguage defines the default language code used by the bot.
-const DefaultLanguage = "ru"
-
 //go:embed *.json
 var localeFS embed.FS
 
-var bundle *i18n.Bundle
+var (
+	bundle          *i18n.Bundle
+	defaultLanguage language.Tag // Store the parsed default language tag
+)
 
-// Init initializes the i18n bundle by loading language files.
-func Init() {
-	bundle = i18n.NewBundle(language.Russian) // Use Russian as the bundle's default language
+// Init initializes the i18n bundle by loading language files and setting the default language.
+func Init(defaultLangCode string) {
+	var err error
+	defaultLanguage, err = language.Parse(defaultLangCode)
+	if err != nil {
+		log.Printf("WARN: Failed to parse default language code '%s': %v. Falling back to English.", defaultLangCode, err)
+		defaultLanguage = language.English // Changed fallback to English
+	}
+
+	bundle = i18n.NewBundle(defaultLanguage) // Use the parsed default language
 	// Register the unmarshal function for JSON files
 	bundle.RegisterUnmarshalFunc("json", json.Unmarshal)
 
@@ -48,15 +55,22 @@ func Init() {
 	if loadedFiles == 0 {
 		log.Fatalf("No message files loaded from locales/")
 	}
-	log.Printf("i18n bundle initialized with %d file(s).", loadedFiles)
+	log.Printf("i18n bundle initialized with %d file(s). Default language: %s", loadedFiles, defaultLanguage.String())
+}
+
+// GetDefaultLanguageTag returns the configured default language tag.
+func GetDefaultLanguageTag() language.Tag {
+	if bundle == nil { // Ensure Init was called
+		log.Panicln("Attempted to get default language tag before i18n bundle initialization.")
+	}
+	return defaultLanguage
 }
 
 // NewLocalizer creates a localizer for the given language preferences.
 // It takes language tags (e.g., "en", "ru") or Accept-Language header string.
 func NewLocalizer(langPrefs ...string) *i18n.Localizer {
 	if bundle == nil {
-		log.Println("WARN: i18n bundle not initialized when creating localizer. Calling Init().")
-		Init()
+		log.Panicln("Attempted to create localizer before i18n bundle initialization.")
 	}
 	return i18n.NewLocalizer(bundle, langPrefs...)
 }

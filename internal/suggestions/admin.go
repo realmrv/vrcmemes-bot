@@ -3,10 +3,11 @@ package suggestions
 import (
 	"context"
 	"fmt"
-	"github.com/mymmrac/telego"
-	tu "github.com/mymmrac/telego/telegoutil"
 	"log"
 	"vrcmemes-bot/internal/locales"
+
+	"github.com/mymmrac/telego"
+	tu "github.com/mymmrac/telego/telegoutil"
 )
 
 // IsAdmin is now defined correctly in manager.go
@@ -18,7 +19,7 @@ func (m *Manager) HandleReviewCommand(ctx context.Context, update telego.Update)
 	log.Printf("[/review] command received from admin %d in chat %d", adminID, chatID)
 
 	// Determine language (use default for now)
-	lang := locales.DefaultLanguage
+	lang := locales.GetDefaultLanguageTag().String()
 	if update.Message.From != nil && update.Message.From.LanguageCode != "" {
 		// lang = update.Message.From.LanguageCode // TODO: Use admin preference
 	}
@@ -54,7 +55,7 @@ func (m *Manager) startReviewSession(ctx context.Context, adminID, chatID int64)
 	}
 
 	// TODO: Determine language from adminID/chatID preferences?
-	localizer := locales.NewLocalizer(locales.DefaultLanguage)
+	localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
 
 	if len(suggestions) == 0 {
 		queueEmptyMsg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
@@ -75,4 +76,19 @@ func (m *Manager) startReviewSession(ctx context.Context, adminID, chatID int64)
 
 	// Send the first suggestion for review
 	return m.SendReviewMessage(ctx, chatID, adminID, 0)
+}
+
+func (m *Manager) handleResetDailyStats(ctx context.Context, chatID int64, userID int64) error {
+	// ... (admin check) ...
+
+	// Perform reset
+	if err := m.repo.ResetDailyLimits(ctx); err != nil {
+		// Send error message
+		localizer := locales.NewLocalizer(locales.GetDefaultLanguageTag().String())
+		errMsg := locales.GetMessage(localizer, "MsgErrorResettingStats", nil, nil)
+		_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errMsg))
+		return fmt.Errorf("failed to reset daily stats: %w", err)
+	}
+
+	return nil
 }
