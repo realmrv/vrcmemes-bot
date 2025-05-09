@@ -152,6 +152,10 @@
     "translation": "🖼️ *Error:* Could not load media for suggestion `{{.SuggestionID}}`."
   },
   {
+    "id": "MsgReviewErrorDisplayingMedia",
+    "translation": "⚠️ Error displaying media for suggestion `{{.SuggestionID}}`. The suggestion text is shown below."
+  },
+  {
     "id": "MsgReviewActionApprovedWithDBError",
     "translation": "✅ Suggestion approved and published (⚠️ DB status update failed)."
   },

@@ -8,12 +8,14 @@ import (
 	"vrcmemes-bot/internal/locales"
 	"vrcmemes-bot/pkg/utils"
 
+	"github.com/getsentry/sentry-go" // Import Sentry
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 )
 
 // SendReviewMessage sends a message to the admin with the suggestion details and action buttons.
+// If sending media fails, it sends an error message with controls instead.
 func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, suggestionIndex int) error {
 	m.reviewSessionsMutex.RLock()
 	session, ok := m.reviewSessions[adminID]
@@ -23,8 +25,8 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 		log.Printf("[SendReviewMessage] Invalid session or index for admin %d, index %d", adminID, suggestionIndex)
 		lang := locales.GetDefaultLanguageTag().String()
 		localizer := locales.NewLocalizer(lang)
-		msg := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil)
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msg))
+		msgText := locales.GetMessage(localizer, "MsgReviewQueueIsEmpty", nil, nil) // Use msgText for clarity
+		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), msgText))
 		m.reviewSessionsMutex.Lock()
 		delete(m.reviewSessions, adminID)
 		m.reviewSessionsMutex.Unlock()
@@ -34,29 +36,18 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	suggestion := session.Suggestions[suggestionIndex]
 	totalSuggestionsInBatch := len(session.Suggestions)
 
-	lang := locales.GetDefaultLanguageTag().String()
+	lang := locales.GetDefaultLanguageTag().String() // Admin's language, can be made more flexible
 	localizer := locales.NewLocalizer(lang)
 
-	// Build the message text using the dedicated helper function
 	messageText := m.buildReviewMessageText(localizer, &suggestion, suggestionIndex, totalSuggestionsInBatch)
-
-	inputMedia := m.createInputMediaFromSuggestion(suggestion)
-	if len(inputMedia) == 0 {
-		log.Printf("[SendReviewMessage] No valid media found for suggestion ID %s", suggestion.ID.Hex())
-		errorMsg := locales.GetMessage(localizer, "MsgReviewErrorLoadMedia", map[string]interface{}{
-			"SuggestionID": suggestion.ID.Hex(),
-		}, nil)
-		_, err := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg).WithParseMode(telego.ModeMarkdownV2))
-		return err
-	}
-
 	suggestionIDHex := suggestion.ID.Hex()
+
+	// --- Keyboard ---
 	approveData := fmt.Sprintf("review:%s:approve:%d", suggestionIDHex, suggestionIndex)
 	rejectData := fmt.Sprintf("review:%s:reject:%d", suggestionIDHex, suggestionIndex)
 	nextData := fmt.Sprintf("review:%s:next:%d", suggestionIDHex, suggestionIndex)
-	previousData := fmt.Sprintf("review:%s:previous:%d", suggestionIDHex, suggestionIndex) // Data for previous button
+	previousData := fmt.Sprintf("review:%s:previous:%d", suggestionIDHex, suggestionIndex)
 
-	// Get localized button texts
 	btnApproveText := locales.GetMessage(localizer, "BtnApprove", nil, nil)
 	btnRejectText := locales.GetMessage(localizer, "BtnReject", nil, nil)
 	btnNextText := locales.GetMessage(localizer, "BtnNext", nil, nil)
@@ -68,8 +59,6 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 			tu.InlineKeyboardButton(btnRejectText).WithCallbackData(rejectData),
 		),
 	}
-
-	// Add navigation row if needed
 	navRow := []telego.InlineKeyboardButton{}
 	if suggestionIndex > 0 {
 		navRow = append(navRow, tu.InlineKeyboardButton(btnPreviousText).WithCallbackData(previousData))
@@ -80,30 +69,33 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 	if len(navRow) > 0 {
 		keyboardRows = append(keyboardRows, navRow)
 	}
-
 	keyboard := &telego.InlineKeyboardMarkup{
 		InlineKeyboard: keyboardRows,
 	}
+	// --- End Keyboard ---
 
-	var sentMediaMessages []*telego.Message // Store sent media messages
-	var sentControlMessage *telego.Message  // Store sent control message
-	var err error
+	var sentMediaMessages []*telego.Message
+	var sentControlMessage *telego.Message
+	var mediaSendError error
 
-	if len(inputMedia) > 0 {
-		if photo, ok := inputMedia[0].(*telego.InputMediaPhoto); ok {
-			if suggestion.Caption != "" {
-				photo.Caption = suggestion.Caption
-			}
-		} else if video, ok := inputMedia[0].(*telego.InputMediaVideo); ok {
-			if suggestion.Caption != "" {
-				video.Caption = suggestion.Caption
-			}
+	inputMedia := m.createInputMediaFromSuggestion(suggestion)
+
+	if len(inputMedia) == 0 {
+		// If no media initially (e.g., text suggestion, though current logic doesn't assume this)
+		// or error in createInputMediaFromSuggestion
+		log.Printf("[SendReviewMessage] No valid media found for suggestion ID %s. Sending text only.", suggestionIDHex)
+		// Send only text message with controls
+		controlMsg, errCtrl := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), messageText).WithReplyMarkup(keyboard).WithParseMode(telego.ModeMarkdownV2))
+		if errCtrl != nil {
+			log.Printf("[SendReviewMessage] Error sending text-only review message for suggestion %s: %v", suggestionIDHex, errCtrl)
+			sentry.CaptureException(fmt.Errorf("failed to send text-only review message for suggestion %s: %w", suggestionIDHex, errCtrl))
+			// Notify user of general error if even this fails
+			errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+			_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
+			return errCtrl // Return error as failed to send even control message
 		}
-	}
-
-	// --- Sending Media and Control Message --- //
-	if len(inputMedia) == 1 {
-		// Send single photo/video directly
+		sentControlMessage = controlMsg
+	} else if len(inputMedia) == 1 {
 		var fileID string
 		if photoInput, ok := inputMedia[0].(*telego.InputMediaPhoto); ok {
 			fileID = photoInput.Media.FileID
@@ -112,87 +104,150 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 
 		sendParams := &telego.SendPhotoParams{
 			ChatID:      tu.ID(chatID),
-			Photo:       telego.InputFile{FileID: fileID}, // Use extracted fileID
-			Caption:     messageText,                      // Combine text with the single media message
+			Photo:       telego.InputFile{FileID: fileID},
+			Caption:     messageText,
 			ParseMode:   telego.ModeMarkdownV2,
 			ReplyMarkup: keyboard,
 		}
-		msg, sendErr := m.bot.SendPhoto(ctx, sendParams)
-
-		if sendErr != nil {
-			log.Printf("[SendReviewMessage] Error sending single review photo for suggestion %s to admin %d: %v", suggestionIDHex, adminID, sendErr)
-			err = sendErr
+		msg, err := m.bot.SendPhoto(ctx, sendParams)
+		if err != nil {
+			log.Printf("[SendReviewMessage] Error sending single review photo for suggestion %s to admin %d: %v", suggestionIDHex, adminID, err)
+			mediaSendError = err // Save media send error
 		} else {
-			sentMediaMessages = append(sentMediaMessages, msg) // Store the single message
-			sentControlMessage = msg                           // In this case, the media message is also the control message
+			sentMediaMessages = append(sentMediaMessages, msg)
+			sentControlMessage = msg
 			log.Printf("[SendReviewMessage] Sent single media message ID %d (also control) for suggestion %s to admin %d", msg.MessageID, suggestionIDHex, adminID)
 		}
-	} else if len(inputMedia) > 1 {
-		// Send media group first
-		sentMediaGroupMessages, sendErr := m.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
-			ChatID: tu.ID(chatID),
-			Media:  inputMedia,
-		})
-		if sendErr != nil {
-			log.Printf("[SendReviewMessage] Error sending review media group for suggestion %s to admin %d: %v", suggestionIDHex, adminID, sendErr)
-			err = sendErr
-		} else {
-			// Send the control message separately after the media group
-			controlMsg, sendErrCtrl := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), messageText).WithReplyMarkup(keyboard).WithParseMode(telego.ModeMarkdownV2))
-			if sendErrCtrl != nil {
-				log.Printf("[SendReviewMessage] Error sending control message for suggestion %s to admin %d after media group: %v", suggestionIDHex, adminID, sendErrCtrl)
-				err = sendErrCtrl // Report the error from sending the control message
+	} else { // len(inputMedia) > 1
+		// First, send media group without caption and keyboard
+		bareMediaGroup := make([]telego.InputMedia, len(inputMedia))
+		for i, item := range inputMedia {
+			switch media := item.(type) {
+			case *telego.InputMediaPhoto:
+				bareMediaGroup[i] = &telego.InputMediaPhoto{Type: media.Type, Media: media.Media} // Copy without Caption
+			case *telego.InputMediaVideo:
+				bareMediaGroup[i] = &telego.InputMediaVideo{Type: media.Type, Media: media.Media} // Copy without Caption
+				// Add other media types if supported
+			default:
+				log.Printf("[SendReviewMessage] Unsupported media type in media group for suggestion %s", suggestionIDHex)
+				mediaSendError = fmt.Errorf("unsupported media type in group for suggestion %s", suggestionIDHex)
+				break // Exit loop if type is not supported
+			}
+		}
+
+		if mediaSendError == nil { // Proceed only if no media type error
+			groupMessages, err := m.bot.SendMediaGroup(ctx, &telego.SendMediaGroupParams{
+				ChatID: tu.ID(chatID),
+				Media:  bareMediaGroup, // Send media group without captions
+			})
+			if err != nil {
+				log.Printf("[SendReviewMessage] Error sending review media group for suggestion %s to admin %d: %v", suggestionIDHex, adminID, err)
+				mediaSendError = err // Save media send error
 			} else {
-				// Convert []telego.Message to []*telego.Message
-				sentMediaPtrs := make([]*telego.Message, len(sentMediaGroupMessages))
-				for i := range sentMediaGroupMessages {
-					sentMediaPtrs[i] = &sentMediaGroupMessages[i]
+				for i := range groupMessages { // Convert to []*telego.Message
+					sentMediaMessages = append(sentMediaMessages, &groupMessages[i])
 				}
-				sentMediaMessages = sentMediaPtrs // Store pointers
-				sentControlMessage = controlMsg   // Store the separate control message
-				log.Printf("[SendReviewMessage] Media group (%d msgs) sent, followed by control message ID %d", len(sentMediaGroupMessages), controlMsg.MessageID)
+				// Then send a separate message with text and keyboard
+				controlMsg, errCtrl := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), messageText).WithReplyMarkup(keyboard).WithParseMode(telego.ModeMarkdownV2))
+				if errCtrl != nil {
+					log.Printf("[SendReviewMessage] Error sending control message for suggestion %s after media group: %v", suggestionIDHex, adminID, errCtrl)
+					// If media group sent but control message failed - this is a problem.
+					// Record error, but try to update session with media ID at least.
+					mediaSendError = fmt.Errorf("media group sent, but control message failed for %s: %w", suggestionIDHex, errCtrl)
+				} else {
+					sentControlMessage = controlMsg
+					log.Printf("[SendReviewMessage] Media group (%d msgs) sent, followed by control message ID %d", len(sentMediaMessages), controlMsg.MessageID)
+				}
 			}
 		}
 	}
-	// --- End Sending Media and Control Message --- //
 
-	if err != nil {
-		// Handle error during sending
-		errorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
-		_, sendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), errorMsg))
-		if sendErr != nil {
-			log.Printf("[SendReviewMessage] Error sending general error message after send failure: %v", sendErr)
+	// --- Handle media send error ---
+	if mediaSendError != nil {
+		sentry.CaptureException(fmt.Errorf("media send error for suggestion %s (admin %d): %w", suggestionIDHex, adminID, mediaSendError))
+
+		// Delete already sent media if any (e.g., part of a group)
+		// This is important to avoid orphaned media without a control message
+		if len(sentMediaMessages) > 0 {
+			tempMediaIDs := make([]int, 0, len(sentMediaMessages))
+			for _, smm := range sentMediaMessages {
+				if smm != nil {
+					tempMediaIDs = append(tempMediaIDs, smm.MessageID)
+				}
+			}
+			// Delete without waiting and without interrupting the main flow if it fails
+			go func() {
+				m.deleteReviewMessages(context.Background(), chatID, tempMediaIDs, 0)
+				log.Printf("[SendReviewMessage] Attempted to clean up %d media messages after send error for suggestion %s", len(tempMediaIDs), suggestionIDHex)
+			}()
+			sentMediaMessages = nil // Clear as they will be or were deleted
 		}
-		return err // Return the original sending error
+
+		// Send error message about media display WITH KEYBOARD
+		// Use messageText (which contains description) + error message
+		errorNotificationTextKey := "MsgReviewErrorDisplayingMedia" // New localization string
+		rawErrorNotificationText := locales.GetMessage(localizer, errorNotificationTextKey, map[string]interface{}{"SuggestionID": suggestionIDHex}, nil)
+		errorNotificationText := utils.EscapeMarkdownV2(rawErrorNotificationText) // <<<< ESCAPE THIS PART
+
+		// Form text that DEFINITELY won't cause Markdown issues
+		// First error text, then main suggestion text (already escaped)
+		// Important: messageText already contains \n newlines and is escaped for MarkdownV2
+		finalErrorTextPayload := errorNotificationText + "\n\n" + messageText
+
+		// Try to send error message with controls
+		errorDisplayMsg, errSendErr := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), finalErrorTextPayload).WithReplyMarkup(keyboard).WithParseMode(telego.ModeMarkdownV2))
+		if errSendErr != nil {
+			log.Printf("[SendReviewMessage] CRITICAL: Failed to send media error notification for suggestion %s: %v", suggestionIDHex, errSendErr)
+			sentry.CaptureException(fmt.Errorf("CRITICAL: failed to send media error notification for %s: %w", suggestionIDHex, errSendErr))
+			// If even this fails, send the most generic message without anything
+			fallbackErrorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+			_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), fallbackErrorMsg))
+			// In this case, return error as admin is left without controls
+			return fmt.Errorf("failed to send any review message for suggestion %s: original media error: %v, fallback error: %v", suggestionIDHex, mediaSendError, errSendErr)
+		}
+		// If error message with controls sent, consider this a "success" from UI perspective
+		sentControlMessage = errorDisplayMsg
+		log.Printf("[SendReviewMessage] Sent media display error notification with controls for suggestion %s, message ID %d", suggestionIDHex, errorDisplayMsg.MessageID)
 	}
+	// --- End handle media send error ---
 
 	// --- Update Session --- //
-	m.reviewSessionsMutex.Lock()
-	if currentSession, exists := m.reviewSessions[adminID]; exists {
-		if sentControlMessage != nil { // Check if control message was successfully sent
-			// Collect IDs of sent media messages
-			mediaIDs := make([]int, 0, len(sentMediaMessages))
+	// Update session only if a control message was sent (normal or error message with controls)
+	if sentControlMessage != nil {
+		m.reviewSessionsMutex.Lock()
+		if currentSession, exists := m.reviewSessions[adminID]; exists {
+			mediaIDs := make([]int, 0, len(sentMediaMessages)) // sentMediaMessages can be nil if there was an error
 			for _, msg := range sentMediaMessages {
 				if msg != nil {
 					mediaIDs = append(mediaIDs, msg.MessageID)
 				}
 			}
-
-			currentSession.CurrentMediaMessageIDs = mediaIDs
+			currentSession.CurrentMediaMessageIDs = mediaIDs // Will be empty if media didn't send or were deleted
 			currentSession.CurrentControlMessageID = sentControlMessage.MessageID
 			currentSession.CurrentIndex = suggestionIndex
-			currentSession.LastReviewMessageID = 0 // Mark old field as unused (or remove it later)
 			log.Printf("[SendReviewMessage] Stored MediaIDs: %v, ControlID: %d for session of admin %d", mediaIDs, sentControlMessage.MessageID, adminID)
 		} else {
-			log.Printf("[SendReviewMessage] Control message was not sent successfully, cannot update session for admin %d", adminID)
+			log.Printf("[SendReviewMessage] Session for admin %d disappeared before storing message IDs.", adminID)
+			// If session disappeared and message was sent, try to delete this "orphaned" control message
+			// This is unlikely, but for cleanliness
+			if sentControlMessage.MessageID != 0 {
+				go m.bot.DeleteMessage(context.Background(), &telego.DeleteMessageParams{ChatID: tu.ID(chatID), MessageID: sentControlMessage.MessageID})
+			}
 		}
+		m.reviewSessionsMutex.Unlock()
 	} else {
-		log.Printf("[SendReviewMessage] Session for admin %d disappeared before storing message IDs.", adminID)
+		// This situation should not occur if logic above is correct
+		// (i.e., either sentControlMessage is set, or an error is returned)
+		log.Printf("[SendReviewMessage] CRITICAL: No control message was sent and no error returned for suggestion %s, admin %d. This should not happen.", suggestionIDHex, adminID)
+		sentry.CaptureException(fmt.Errorf("critical logic flaw: no control message and no error for suggestion %s, admin %d", suggestionIDHex, adminID))
+		// Send general error message as admin is left without anything
+		fallbackErrorMsg := locales.GetMessage(localizer, "MsgErrorGeneral", nil, nil)
+		_, _ = m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), fallbackErrorMsg))
+		// And return error to interrupt
+		return fmt.Errorf("no control message sent for suggestion %s", suggestionIDHex)
 	}
-	m.reviewSessionsMutex.Unlock()
-	// --- End Update Session --- //
 
-	return nil
+	return nil // Do not return error here to not interrupt /review
 }
 
 // deleteReviewMessages attempts to delete the review prompt message and associated media messages.
