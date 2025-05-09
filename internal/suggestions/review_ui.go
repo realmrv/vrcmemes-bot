@@ -118,6 +118,7 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 			ReplyMarkup: keyboard,
 		}
 		msg, sendErr := m.bot.SendPhoto(ctx, sendParams)
+
 		if sendErr != nil {
 			log.Printf("[SendReviewMessage] Error sending single review photo for suggestion %s to admin %d: %v", suggestionIDHex, adminID, sendErr)
 			err = sendErr
@@ -248,8 +249,14 @@ func (m *Manager) createInputMediaFromSuggestion(suggestion models.Suggestion) [
 		maxItems = 10
 	}
 
+	log.Printf("[createInputMediaFromSuggestion] Processing FileIDs for suggestion %s: %v", suggestion.ID.Hex(), suggestion.FileIDs) // Log the FileIDs
+
 	for i := 0; i < maxItems; i++ {
 		fileID := suggestion.FileIDs[i]
+		if fileID == "" {
+			log.Printf("[createInputMediaFromSuggestion] Warning: Empty FileID at index %d for suggestion %s", i, suggestion.ID.Hex())
+			continue // Skip empty file IDs
+		}
 		mediaPhoto := &telego.InputMediaPhoto{
 			Type:  "photo",
 			Media: telego.InputFile{FileID: fileID},
@@ -261,37 +268,51 @@ func (m *Manager) createInputMediaFromSuggestion(suggestion models.Suggestion) [
 
 // buildReviewMessageText formats the text for the review message.
 func (m *Manager) buildReviewMessageText(localizer *i18n.Localizer, suggestion *models.Suggestion, index, total int) string {
-	indexText := locales.GetMessage(localizer, "MsgReviewCurrentSuggestionIndex", map[string]interface{}{
+	// Part 1: Index text
+	// Get raw localized string
+	rawIndexText := locales.GetMessage(localizer, "MsgReviewCurrentSuggestionIndex", map[string]interface{}{
 		"Index": index + 1, // User-friendly 1-based index
 		"Total": total,
 	}, nil)
+	// Escape the entire localized string
+	escapedIndexText := utils.EscapeMarkdownV2(rawIndexText)
 
-	// Prepare username display
-	var usernameDisplay string
+	// Part 2: From text
+	// Use raw user-provided FirstName and Username for interpolation
+	var rawUsernameDisplay string
 	if suggestion.Username != "" {
-		// Escape the username to prevent issues with MarkdownV2 special characters
-		usernameDisplay = utils.EscapeMarkdownV2(suggestion.Username)
+		rawUsernameDisplay = suggestion.Username
 	} else {
-		usernameDisplay = locales.GetMessage(localizer, "MsgReviewNoUsernamePlaceholder", nil, nil)
+		// Get raw placeholder from locale
+		rawUsernameDisplay = locales.GetMessage(localizer, "MsgReviewNoUsernamePlaceholder", nil, nil)
 	}
 
-	fromText := locales.GetMessage(localizer, "MsgReviewFrom", map[string]interface{}{
-		"FirstName": utils.EscapeMarkdownV2(suggestion.FirstName),
-		"Username":  usernameDisplay, // Username part is now escaped
+	// Get raw localized "From" text using raw user data
+	rawFromText := locales.GetMessage(localizer, "MsgReviewFrom", map[string]interface{}{
+		"FirstName": suggestion.FirstName, // Raw
+		"Username":  rawUsernameDisplay,   // Raw
 		"UserID":    suggestion.SuggesterID,
 	}, nil)
+	// Escape the entire localized "From" string
+	escapedFromText := utils.EscapeMarkdownV2(rawFromText)
 
-	// Prepare caption text
-	var captionContent string
+	// Part 3: Caption text
+	var rawCaptionContent string
 	if suggestion.Caption != "" {
-		captionContent = utils.EscapeMarkdownV2(suggestion.Caption)
+		rawCaptionContent = suggestion.Caption // Raw
 	} else {
-		captionContent = locales.GetMessage(localizer, "MsgReviewNoCaptionPlaceholder", nil, nil)
+		// Get raw placeholder text from locale for no caption
+		rawCaptionContent = locales.GetMessage(localizer, "MsgReviewNoCaptionPlaceholder", nil, nil)
 	}
-	// Get the prefix like "Caption: " or "Подпись: " using the new key
-	captionPrefix := locales.GetMessage(localizer, "MsgReviewCaptionPrefix", nil, nil)
-	// Manually construct the final line, ensuring content is escaped
-	captionLine := captionPrefix + " " + captionContent // Add space manually
 
-	return fmt.Sprintf("%s\n%s\n%s", indexText, fromText, captionLine)
+	// Get raw caption prefix from locale
+	rawCaptionPrefix := locales.GetMessage(localizer, "MsgReviewCaptionPrefix", nil, nil)
+
+	// Assemble raw "Caption" line
+	rawCaptionLine := rawCaptionPrefix + " " + rawCaptionContent
+	// Escape the entire localized "Caption" line
+	escapedCaptionLine := utils.EscapeMarkdownV2(rawCaptionLine)
+
+	// Combine all parts with actual newlines.
+	return fmt.Sprintf("%s\n%s\n%s", escapedIndexText, escapedFromText, escapedCaptionLine)
 }

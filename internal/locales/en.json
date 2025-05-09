@@ -141,7 +141,7 @@
   },
   {
     "id": "MsgReviewFrom",
-    "translation": "👤 From: {{.FirstName}} \\\\(@{{.Username}}, ID: {{.UserID}}\\\\)"
+    "translation": "👤 From: {{.FirstName}} (@{{.Username}}, ID: {{.UserID}})"
   },
   {
     "id": "MsgReviewCaption",
