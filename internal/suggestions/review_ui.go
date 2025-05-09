@@ -150,7 +150,7 @@ func (m *Manager) SendReviewMessage(ctx context.Context, chatID, adminID int64, 
 				// Then send a separate message with text and keyboard
 				controlMsg, errCtrl := m.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), messageText).WithReplyMarkup(keyboard).WithParseMode(telego.ModeMarkdownV2))
 				if errCtrl != nil {
-					log.Printf("[SendReviewMessage] Error sending control message for suggestion %s after media group: %v", suggestionIDHex, adminID, errCtrl)
+					log.Printf("[SendReviewMessage] Error sending control message for suggestion %s after media group: %v", suggestionIDHex, errCtrl)
 					// If media group sent but control message failed - this is a problem.
 					// Record error, but try to update session with media ID at least.
 					mediaSendError = fmt.Errorf("media group sent, but control message failed for %s: %w", suggestionIDHex, errCtrl)
