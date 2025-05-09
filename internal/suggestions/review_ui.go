@@ -269,16 +269,15 @@ func (m *Manager) buildReviewMessageText(localizer *i18n.Localizer, suggestion *
 	// Prepare username display
 	var usernameDisplay string
 	if suggestion.Username != "" {
-		// Don't escape the @, but escape the username itself if it contains special chars?
-		// For now, assume usernames are safe or handle specific cases if needed.
-		usernameDisplay = suggestion.Username
+		// Escape the username to prevent issues with MarkdownV2 special characters
+		usernameDisplay = utils.EscapeMarkdownV2(suggestion.Username)
 	} else {
 		usernameDisplay = locales.GetMessage(localizer, "MsgReviewNoUsernamePlaceholder", nil, nil)
 	}
 
 	fromText := locales.GetMessage(localizer, "MsgReviewFrom", map[string]interface{}{
 		"FirstName": utils.EscapeMarkdownV2(suggestion.FirstName),
-		"Username":  usernameDisplay, // Username part is already handled
+		"Username":  usernameDisplay, // Username part is now escaped
 		"UserID":    suggestion.SuggesterID,
 	}, nil)
 
