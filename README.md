@@ -60,13 +60,13 @@ Users can run `/start`, `/help`, `/suggest`, and `/feedback`. Channel administra
 
 ## Release deployment
 
-Pushes to `develop` run Go tests, vet, Compose validation, and an amd64 image build. They do not deploy. Publish a GitHub release such as `v0.1.0` from the tested commit, then run **Actions → Verify and deploy release → Run workflow** with the required `release_tag`. The workflow rejects missing, draft, prerelease, and malformed tags. It verifies the server host key, deploys the tag's exact commit, and reports the commit SHA, bot image ID, and database/bot health in its summary.
+Pushes to `develop` run Go tests, vet, Compose validation, and an amd64 image build. They do not deploy. Publish a GitHub release such as `v0.1.1` from the tested commit, then run **Actions → Verify and deploy release → Run workflow** with the required `release_tag`. The workflow rejects missing, draft, prerelease, and malformed tags. It verifies the server host key, deploys the tag's exact commit, and reports the commit SHA, bot image ID, and database/bot health in its summary.
 
 Production Actions secrets are `SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_PORT`, `SSH_USER`, and `SERVER_PROJECT_PATH`. The host key fingerprint embedded in the workflow must be verified independently in the provider console before the first deployment or after a legitimate host-key change. The server checkout must be clean. Keep the server's `.env` outside Git and permission restricted.
 
 ### Ubuntu 26 recovery
 
-If MongoDB logs report a Linux kernel incompatibility, check `uname -r` and `docker logs --tail 80 vrcmemes-mongodb`. MongoDB 8.3.11 on this host rejected kernel `7.0.0-34-generic` after the Ubuntu 26.04 upgrade. Before changing the boot kernel, make and verify an offline backup of `vrcmemes-bot_mongodb_data` and `.env`, confirm provider console or rescue access, and record all running containers on the shared host. The installed `6.8.0-142-generic` kernel is the temporary recovery path. Boot it once, check MongoDB authentication and every previously running container, then make it persistent only after those checks pass. Recheck for a compatible maintained kernel by 2026-10-27.
+If MongoDB logs report a Linux kernel incompatibility, check `uname -r` and `docker logs --tail 80 vrcmemes-mongodb`. MongoDB 8.3.11 on this host rejected kernel `7.0.0-34-generic` after the Ubuntu 26.04 upgrade. This Compose file sets `MONGO_TCMALLOC_PER_CPU_CACHE_SIZE_BYTES=0` and clears the image's `GLIBC_TUNABLES` value. Together they disable the TCMalloc per-CPU cache path that triggers MongoDB's startup guard. The pinned MongoDB 8.3.11 image was tested on this host's x86_64 kernel with authenticated reads and writes, and no restart during the smoke window. Keep a verified backup of `vrcmemes-bot_mongodb_data` and `.env` before recreating the database container. Do not change the host kernel or downgrade the database for this release. This is a temporary, locally verified workaround; [MongoDB's supported remedy](https://www.mongodb.com/docs/manual/administration/production-notes/) is a compatible kernel. Disabling the cache may reduce allocator throughput, so monitor the bot and database after deployment. Recheck for a compatible maintained kernel by 2026-10-27, then remove the workaround only after a separate stability test without it.
 
 ### Deployment troubleshooting
 
@@ -74,7 +74,7 @@ If MongoDB logs report a Linux kernel incompatibility, check `uname -r` and `doc
 |---|---|---|
 | Compose reports missing MongoDB variables | `.env` lacks the required root values | Set both root variables and `MONGODB_URI`; run `docker compose -f docker-compose.yml config --quiet`. |
 | SSH fingerprint mismatch | Server identity changed or key was replaced | Stop deployment; compare the ED25519 fingerprint in the provider console with the workflow value. |
-| MongoDB is unhealthy | Kernel incompatibility, wrong password, or storage issue | Run `uname -r` and `docker logs --tail 80 vrcmemes-mongodb`; verify an authenticated database operation. |
+| MongoDB is unhealthy | Missing TCMalloc workaround, wrong password, or storage issue | Run `uname -r` and `docker logs --tail 80 vrcmemes-mongodb`; verify both Compose environment settings and an authenticated database operation. |
 | Bot stops or restarts | Runtime URI, token, or Telegram polling error | Run `docker logs --tail 80 vrcmemes-bot-prod` and inspect `.env` without printing secrets. |
 | Workflow tag validation fails | Tag is absent, unpublished, draft, or prerelease | Publish the release, then rerun the workflow with the exact `vX.Y.Z` tag. |
 
@@ -92,7 +92,7 @@ docker compose -f docker-compose.yml -f /tmp/vrcmemes-bot-rollback.yml up -d --n
 docker compose -f docker-compose.yml ps
 ```
 
-This leaves the pinned MongoDB image and named volume untouched. Verify the bot logs and an administrator's `/status` reply. If the temporary kernel fails to boot, use the provider console to return to the previous kernel and check other host services; MongoDB may remain unavailable on that kernel. Never run `docker compose down -v` against the production stack.
+This leaves the pinned MongoDB image and named volume untouched. Verify the bot logs and an administrator's `/status` reply. Never run `docker compose down -v` against the production stack.
 
 ## Development
 

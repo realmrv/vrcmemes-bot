@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.1 - 2026-09-27
+
+- Run MongoDB 8.3.11 on the existing Ubuntu 26 host kernel by disabling TCMalloc per-CPU caches and clearing the image's conflicting `GLIBC_TUNABLES` value.
+- Keep the database on the same pinned image and named volume; no host reboot or database downgrade is required for this recovery.
+- Verify the workaround in CI and document how to remove it after a compatible kernel is available.
+
 ## v0.1.0 - 2026-09-27
 
 First tagged release.

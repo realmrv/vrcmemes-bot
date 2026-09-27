@@ -71,6 +71,7 @@ jobs:
           go mod verify
           cp .env.example .env
           docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.yml config --format json | jq -e '.services.mongodb.environment.MONGO_TCMALLOC_PER_CPU_CACHE_SIZE_BYTES == "0" and .services.mongodb.environment.GLIBC_TUNABLES == ""' >/dev/null
 
       - name: Build production image
         run: docker build --platform linux/amd64 --target final -t vrcmemes-bot:ci .
