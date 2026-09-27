@@ -1,40 +1,21 @@
-# Use the official Golang image as a builder stage
-FROM golang:1.24-alpine AS builder
+# syntax=docker/dockerfile:1
+FROM golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 
 WORKDIR /app
-
-# Install dependencies and build tools
-# Added git and gcc for potential CGO needs if any dependency requires it, and air for live reload
-RUN apk add --no-cache git build-base && \
-    go install github.com/air-verse/air@latest
-
-# Copy project files
 COPY go.mod go.sum ./
-# Download dependencies
 RUN go mod download
-
-# Copy the entire source code
 COPY . .
 
-# Build application using the target architecture provided by Docker BuildKit
-# Output the binary into the current directory (/app)
-RUN GOOS=linux GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -o /app/vrcmemes-bot .
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -o /app/vrcmemes-bot .
 
-# --- Final Stage ---
-# Use a minimal alpine image for the final stage
-# Name this stage 'final' so docker-compose can target it
-FROM alpine:latest AS final
+FROM builder AS dev
+RUN go install github.com/air-verse/air@v1.67.3
 
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS final
+
+RUN apk add --no-cache ca-certificates && addgroup -S app && adduser -S -G app app
 WORKDIR /app
-
-# Copy only the built binary from the builder stage
-COPY --from=builder /app/vrcmemes-bot /app/vrcmemes-bot
-
-# Expose port if your application listens on one (e.g., EXPOSE 8080)
-# Add any other necessary files like static assets or templates here
-# COPY --from=builder /app/templates ./templates
-# COPY --from=builder /app/static ./static
-
-# Run application
-# The command is simply the path to the binary
-CMD ["./vrcmemes-bot"] 
+COPY --from=builder --chown=app:app /app/vrcmemes-bot /app/vrcmemes-bot
+USER app
+CMD ["/app/vrcmemes-bot"]

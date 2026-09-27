@@ -1,63 +1,164 @@
-name: Deploy to Server
+name: Verify and deploy release
 
 on:
   push:
-    branches:
-      - develop # Trigger on push to develop branch
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published release tag to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vrcmemes-bot-${{ github.event_name == 'workflow_dispatch' && 'production' || github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Deploy
+  verify:
     runs-on: ubuntu-latest
-    environment: production # Specify the environment to access its secrets
-
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - name: Checkout code # Required to access the code for building/testing
-        uses: actions/checkout@v4
+      - name: Validate published release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::Invalid release tag. Use a published vX.Y.Z release; see README Release deployment.'
+            exit 1
+          fi
+          if ! gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.draft == false and .prerelease == false' | grep -qx true; then
+            echo '::error::Release is missing, draft, or prerelease. Publish it before deployment; see README Release deployment.'
+            exit 1
+          fi
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
         with:
-          go-version: '1.24' # Specify your Go version
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.sha }}
+          fetch-depth: 0
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Record exact commit
+        id: commit
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            test "$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")" = "$(git rev-parse HEAD)"
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Build
-        run: go build -v ./...
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+          cache: true
 
-      - name: Test
-        run: go test -v ./...
+      - name: Verify Go and Compose
+        env:
+          MONGO_INITDB_ROOT_USERNAME: ci
+          MONGO_INITDB_ROOT_PASSWORD: ci-only-placeholder
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+          go mod verify
+          cp .env.example .env
+          docker compose -f docker-compose.yml config --quiet
 
-      - name: Setup SSH Agent
-        uses: webfactory/ssh-agent@v0.9.0
+      - name: Build production image
+        run: docker build --platform linux/amd64 --target final -t vrcmemes-bot:ci .
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Load SSH key
+        uses: webfactory/ssh-agent@v0.10.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Add Server to Known Hosts
-        # Add the server's host key to known_hosts to avoid interactive confirmation
-        # -H hashes the hostname for security
-        run: ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Deploy via SSH
+      - name: Verify server host key
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
         run: |
-          # Connect to the server and execute commands
-          # StrictHostKeyChecking=no is used here as a fallback, but ssh-keyscan above should make it unnecessary
-          # Use HEREDOC (<< 'EOF') to pass a multi-line script
-          ssh -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
-            echo "Navigating to project directory..."
-            cd ${{ secrets.SERVER_PROJECT_PATH }} # Change to the project directory on the server
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          ssh-keyscan -T 10 -t ed25519 -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          fingerprint=$(ssh-keygen -lf ~/.ssh/known_hosts -E sha256 | awk 'NR == 1 {print $2}')
+          if [[ "$fingerprint" != 'SHA256:cntmTVlXlcjeFE2u+1zPGpoqVmXHfb31gkY6KDIfuko' ]]; then
+            echo '::error::Server SSH fingerprint differs from the provider-console-verified key. Stop and check host identity; see README Deployment troubleshooting.'
+            exit 1
+          fi
 
-            echo "Pulling latest changes from develop branch..."
-            git checkout develop # Switch to develop branch (just in case)
-            git pull origin develop # Pull the latest changes
-
-            echo "Building and restarting Docker containers..."
-            # Rebuild images (if Dockerfile changed) and restart containers in detached mode
-            docker compose up -d --build
-
-            echo "Cleaning up dangling Docker images..." # Optional: Remove old, unused images
-            docker image prune -f
-
-            echo "Deployment finished successfully."
-          EOF
+      - name: Deploy exact release commit
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SERVER_PROJECT_PATH: ${{ secrets.SERVER_PROJECT_PATH }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SHA: ${{ needs.verify.outputs.commit_sha }}
+        run: |
+          set -Eeuo pipefail
+          trap 'echo "::error::Deployment failed. Inspect Docker logs and follow README Deployment troubleshooting and Rollback."' ERR
+          printf -v remote_path '%q' "$SERVER_PROJECT_PATH"
+          printf -v remote_tag '%q' "$RELEASE_TAG"
+          printf -v remote_sha '%q' "$RELEASE_SHA"
+          ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            "$SSH_USER@$SSH_HOST" "bash -s -- $remote_path $remote_tag $remote_sha" <<'REMOTE' | tee "$RUNNER_TEMP/deploy.log"
+          set -Eeuo pipefail
+          trap 'echo "Remote deployment failed; inspect docker compose logs and follow README Deployment troubleshooting." >&2' ERR
+          project_path=$1
+          release_tag=$2
+          expected_sha=$3
+          cd "$project_path"
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo 'Remote checkout has uncommitted changes; deployment stopped.' >&2
+            exit 1
+          fi
+          git fetch --tags origin
+          actual_sha=$(git rev-parse "refs/tags/$release_tag^{commit}")
+          if [[ "$actual_sha" != "$expected_sha" ]]; then
+            echo 'Release tag resolves to a different commit on the server.' >&2
+            exit 1
+          fi
+          git checkout --detach "$actual_sha"
+          previous_image=$(docker inspect --format '{{.Image}}' vrcmemes-bot-prod 2>/dev/null || true)
+          if [[ -n "$previous_image" ]]; then
+            docker image tag "$previous_image" vrcmemes-bot:rollback
+          fi
+          VERSION="$release_tag" docker compose -f docker-compose.yml up -d --build --wait --wait-timeout 120
+          if [[ "$(docker inspect --format '{{.State.Health.Status}}' vrcmemes-mongodb)" != healthy ]]; then
+            echo 'MongoDB is unhealthy; check credentials and host kernel. See README Ubuntu 26 recovery.' >&2
+            exit 1
+          fi
+          initial_restarts=$(docker inspect --format '{{.RestartCount}}' vrcmemes-bot-prod)
+          sleep 90
+          final_restarts=$(docker inspect --format '{{.RestartCount}}' vrcmemes-bot-prod)
+          if [[ "$(docker inspect --format '{{.State.Running}}' vrcmemes-bot-prod)" != true || "$initial_restarts" != "$final_restarts" ]]; then
+            echo 'Bot stopped or restarted during the smoke window; inspect logs and use README Rollback.' >&2
+            exit 1
+          fi
+          image_id=$(docker inspect --format '{{.Image}}' vrcmemes-bot-prod)
+          printf 'DEPLOY_IMAGE_ID=%s\n' "$image_id"
+          REMOTE
+          image_id=$(sed -n 's/^DEPLOY_IMAGE_ID=//p' "$RUNNER_TEMP/deploy.log" | tail -n 1)
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          {
+            echo '### Production deployment'
+            echo "- Release: $RELEASE_TAG"
+            echo "- Commit: $RELEASE_SHA"
+            echo "- Bot image: $image_id"
+            echo '- MongoDB: healthy; bot: running without restart for 90 seconds'
+            echo '- Final user check: ask a channel administrator to send /status to the bot'
+          } >> "$GITHUB_STEP_SUMMARY"

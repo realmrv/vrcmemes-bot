@@ -332,32 +332,42 @@ func (b *Bot) processUpdate(ctx context.Context, update telego.Update) {
 	}
 }
 
-// Start begins the bot's update processing loop.
-// It now uses the updatesChan passed during initialization.
-func (b *Bot) Start(ctx context.Context) {
+// Start processes updates until shutdown or an unexpected polling failure.
+func (b *Bot) Start(ctx context.Context) error {
 	if b.updatesChan == nil {
-		log.Fatal("Bot updates channel is nil, cannot start")
+		return errors.New("bot updates channel is nil")
 	}
 	log.Println("Listening for updates...")
 
 	var wg sync.WaitGroup
+	const maxConcurrentUpdates = 20
+	active := make(chan struct{}, maxConcurrentUpdates)
 
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("Context done, stopping update processing...")
-			wg.Wait() // Wait for all processing goroutines to finish
+			wg.Wait()
 			log.Println("All update processing finished.")
-			return
-		case update, ok := <-b.updatesChan: // Read from the stored channel
+			return nil
+		case update, ok := <-b.updatesChan:
 			if !ok {
-				log.Println("Updates channel closed.")
-				wg.Wait() // Ensure processing finishes if channel closes unexpectedly
-				return
+				wg.Wait()
+				if ctx.Err() != nil {
+					return nil
+				}
+				return errors.New("Telegram updates channel closed unexpectedly")
+			}
+			select {
+			case active <- struct{}{}:
+			case <-ctx.Done():
+				wg.Wait()
+				return nil
 			}
 			wg.Add(1)
 			go func(up telego.Update) {
 				defer wg.Done()
+				defer func() { <-active }()
 				b.processUpdate(ctx, up)
 			}(update)
 		}

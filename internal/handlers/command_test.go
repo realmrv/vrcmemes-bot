@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 	"vrcmemes-bot/internal/database/models" // Add import for models
@@ -249,8 +248,6 @@ func setupTestHandlerSuite(t *testing.T) *testHandlerSuite {
 	mockSuggestionManager := new(MockSuggestionManager)
 	mockFeedbackRepo := new(MockFeedbackRepository)
 
-	var activeCaptionsMap sync.Map
-
 	handler := &MessageHandler{
 		channelID:         testChannelID,
 		postLogger:        nil,
@@ -260,7 +257,6 @@ func setupTestHandlerSuite(t *testing.T) *testHandlerSuite {
 		adminChecker:      mockAdminChecker,
 		feedbackRepo:      mockFeedbackRepo,
 		version:           testVersion,
-		activeCaptions:    activeCaptionsMap,
 	}
 
 	// Initialize the commands slice using the local Command type and localization KEYS

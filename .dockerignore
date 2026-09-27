@@ -1,0 +1,16 @@
+.git
+.github
+.env*
+**/.env*
+.ssh
+**/.ssh
+*.pem
+*.key
+.vscode
+.idea
+.DS_Store
+*.md
+*.log
+tmp
+vrcmemes-bot
+docker-compose*.yml

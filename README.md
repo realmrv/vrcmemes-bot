@@ -1,260 +1,102 @@
 # VRChat Memes Bot
 
-Telegram bot for posting VRChat memes to a channel, featuring a suggestion and review system.
-
-## Features
-
-- Posts memes directly to a specified Telegram channel (Admin only)
-- **User Suggestion System:** Allows channel subscribers to suggest posts (`/suggest`).
-- **Admin Review Queue:** Admins can review (`/review`), approve, or reject suggestions.
-- **Caption Management:** Admins can set (`/caption`), view (`/showcaption`), and clear (`/clearcaption`) a default caption for subsequent media posts.
-- **Localization:** Supports multiple languages (EN, RU) using `go-i18n`.
-- Debug mode for development.
-- Error tracking with Sentry (including panic recovery).
-- Enhanced error handling with context wrapping.
-- Improved logging with contextual information.
-- Detailed GoDoc comments throughout the codebase.
-- Robust media group handling with rate limit retries.
-- Environment-based configuration.
-- MongoDB integration for user tracking, post logging, and suggestion storage.
-- Docker support (Development & Production environments).
-- Hot-reload development mode with Air.
-- Unit tests for command handlers.
-- CI/CD pipeline with testing and deployment via GitHub Actions.
+A Telegram bot for posting VRChat memes to a channel, collecting suggestions, and reviewing them with channel administrators.
 
 ## Requirements
 
-- Go 1.24 or higher
-- Docker & Docker Compose
-- Telegram Bot Token
-- Sentry DSN (optional, for error tracking)
-- Key dependencies:
-  - `github.com/mymmrac/telego v1.0.2`
-  - `github.com/getsentry/sentry-go v0.31.1`
-  - `go.mongodb.org/mongo-driver v1.17.3`
-  - `github.com/joho/godotenv v1.5.1` (for loading `.env` files)
-  - `github.com/nicksnyder/go-i18n/v2 v2.6.0`
-  - `github.com/stretchr/testify v1.10.0` (for testing)
+- Go 1.27.1 for local builds, or Docker with Compose for container builds.
+- A bot token from [BotFather](https://t.me/BotFather), the numeric channel ID, and administrator access for the bot in that channel.
+- A MongoDB password generated for this installation. `openssl rand -hex 32` produces a password that can be placed in a MongoDB URI without extra encoding.
 
-## Installation & Running with Docker (Recommended)
+The maintained dependency versions are recorded in `go.mod`. Sentry is optional.
 
-1. **Clone the repository:**
+## Quickstart
 
-    ```bash
-    git clone https://github.com/yourusername/vrcmemes-bot.git
-    cd vrcmemes-bot
-    ```
+```sh
+git clone https://github.com/realmrv/vrcmemes-bot.git
+cd vrcmemes-bot
+cp .env.example .env
+chmod 600 .env
+```
 
-2. **Copy the example environment file and configure it:**
+Edit `.env` and set `TELEGRAM_BOT_TOKEN`, `CHANNEL_ID`, `MONGO_INITDB_ROOT_PASSWORD`, and `MONGODB_URI`. For example, when the username is `admin` and the generated password is `YOUR_GENERATED_PASSWORD`, the URI is:
 
-    ```bash
-    cp .env.example .env
-    ```
+```text
+mongodb://admin:YOUR_GENERATED_PASSWORD@mongodb:27017/?authSource=admin
+```
 
-3. **Edit `.env` file with your configuration:**
-    - Set `TELEGRAM_BOT_TOKEN`, `CHANNEL_ID`.
-    - Set `SENTRY_DSN` if you want to use Sentry for error tracking.
-    - Adjust `MONGO_INITDB_ROOT_USERNAME` and `MONGO_INITDB_ROOT_PASSWORD` if needed (defaults are 'admin'/'password').
-    - Other variables like `APP_ENV`, `DEBUG`, `VERSION`, `BOT_DEFAULT_LANGUAGE` can be configured as needed.
-    - **Note:** The `MONGODB_URI` is automatically configured for Docker Compose. For manual runs, you'll need to set it appropriately.
+Use the same password in `MONGO_INITDB_ROOT_PASSWORD` and the URI. If a password contains reserved URI characters, [percent-encode](https://www.mongodb.com/docs/manual/reference/connection-string/) them in `MONGODB_URI`. Leave `SENTRY_DSN` empty to disable Sentry. Never commit `.env`.
 
-    ```env
-    # Example .env
-    APP_ENV=development    # development, staging, or production
-    DEBUG=true            # Enable debug mode
-    VERSION=dev          # Application version
-    BOT_DEFAULT_LANGUAGE=en       # Default bot language (en, ru)
+Start the production configuration explicitly:
 
-    TELEGRAM_BOT_TOKEN=your-bot-token
-    CHANNEL_ID=your-channel-id # Bot will check admin status here & post memes here
-    SENTRY_DSN=your-sentry-dsn-here # Optional
+```sh
+docker compose -f docker-compose.yml config --quiet
+docker compose -f docker-compose.yml up -d --build --wait --wait-timeout 120
+docker compose -f docker-compose.yml ps
+```
 
-    # MongoDB Credentials (used by docker-compose.yml)
-    MONGO_INITDB_ROOT_USERNAME=admin
-    MONGO_INITDB_ROOT_PASSWORD=password
+MongoDB should report `healthy`, and the bot should be `running`. A channel administrator can then send `/status` to the bot in a private chat and confirm a reply. The bot does not post this reply to the channel. This is the final user-visible check; container status alone does not prove that Telegram polling works.
 
-    # MongoDB Connection (usually set for non-docker runs or specific overrides)
-    # MONGODB_URI=mongodb://admin:password@localhost:27017
-    MONGODB_DATABASE=vrcmemes
-    ```
+For local hot reload, first copy `docker-compose.override.example.yml` to the ignored `docker-compose.override.yml`, then run `docker compose up --build`. The default Compose command loads that development override. Production commands always specify `-f docker-compose.yml` so they do not load it.
 
-4. **Run in Development Mode (with Hot-Reload):**
-    This uses `docker-compose.yml` and `docker-compose.override.yml` to run the `builder` stage with `air` and mounts your local code.
+## Configuration
 
-    ```bash
-    docker compose up --build
-    ```
+| Variable | Purpose |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Required BotFather token |
+| `CHANNEL_ID` | Required numeric channel ID used for posting and administrator checks |
+| `MONGODB_URI` | Required runtime connection URI used by the bot |
+| `MONGODB_DATABASE` | Required application database name; `vrcmemes` in the example |
+| `MONGO_INITDB_ROOT_USERNAME` | Root user created only when a MongoDB volume is initialized |
+| `MONGO_INITDB_ROOT_PASSWORD` | Root password created only when a MongoDB volume is initialized; also used by the authenticated health check |
+| `VERSION` | Bot version; the release workflow sets this to the deployed tag |
+| `APP_ENV`, `DEBUG`, `BOT_DEFAULT_LANGUAGE`, `SENTRY_DSN` | Optional runtime settings |
 
-    *(Add `-d` to run in the background)*
-
-5. **Run in Production Mode:**
-    This uses *only* `docker-compose.yml` to run the final, optimized stage. It builds the production image and does not mount local code.
-
-    ```bash
-    docker compose -f docker-compose.yml up --build -d
-    ```
-
-6. **Stopping the Application:**
-
-    ```bash
-    # If started with 'docker compose up' (dev mode)
-    docker compose down
-
-    # If started with 'docker compose -f docker-compose.yml up' (prod mode)
-    docker compose -f docker-compose.yml down
-    ```
-
-## Manual Installation & Running (Not Recommended for Production)
-
-1. Clone, install dependencies (`go mod download`), and configure `.env` as described above. Ensure `MONGODB_URI` points to your accessible MongoDB instance.
-2. Run the application directly:
-
-    ```bash
-    go run main.go
-    ```
-
-3. For hot-reload during manual development:
-
-    ```bash
-    # Make sure air is installed (go install github.com/air-verse/air@latest)
-    air
-    ```
-
-## Environment Variables
-
-| Variable                       | Description                                              | Required             | Default         |
-| ------------------------------ | -------------------------------------------------------- | -------------------- | --------------- |
-| `APP_ENV`                      | Application environment (development/staging/production) | No                   | `development`   |
-| `DEBUG`                        | Enable debug mode                                        | No                   | `false`         |
-| `VERSION`                      | Application version                                      | Yes                  | -               |
-| `BOT_DEFAULT_LANGUAGE`         | Default language for the bot (e.g., `en`, `ru`)          | No                   | `en`            |
-| `TELEGRAM_BOT_TOKEN`           | Your Telegram bot token                                  | Yes                  | -               |
-| `CHANNEL_ID`                   | Telegram channel ID where memes will be posted and admin status checked | Yes                  | -               |
-| `SENTRY_DSN`                   | Sentry DSN for error tracking                            | No                   | -               |
-| `MONGO_INITDB_ROOT_USERNAME` | MongoDB root username for initialization               | No (used by Docker)  | `admin`         |
-| `MONGO_INITDB_ROOT_PASSWORD` | MongoDB root password for initialization               | No (used by Docker)  | `password`      |
-| `MONGODB_URI`                  | MongoDB connection URI                                   | Yes (for manual run) | -               |
-| `MONGODB_DATABASE`             | MongoDB database name                                    | Yes                  | -               |
-
-## User Roles & Admin Check
-
-- **Admin:** Determined by having `creator` or `administrator` status in the Telegram channel specified by `CHANNEL_ID`. Admins can use all bot commands *except* `/suggest` and `/feedback`. They can post directly, manage captions, and review suggestions (`/review`).
-- **User/Subscriber:** Can use `/start`, `/help`, `/suggest`, and `/feedback`. Must be subscribed to the target channel (`CHANNEL_ID`) to use `/suggest`.
+Changing `MONGO_INITDB_ROOT_USERNAME` or `MONGO_INITDB_ROOT_PASSWORD` in `.env` does **not** change an existing user in a persistent MongoDB volume. Rotate that user inside MongoDB first, then update both the health-check credentials and the bot's `MONGODB_URI`. Keep the `mongodb_data` named volume intact.
 
 ## Commands
 
-### User Commands
+Users can run `/start`, `/help`, `/suggest`, and `/feedback`. Channel administrators can also run `/status`, `/version`, `/caption`, `/showcaption`, `/clearcaption`, and `/review`. Administrators can send photos, videos, or media groups to the bot for direct posting. Suggestions are stored in MongoDB and can be approved or rejected from the review queue.
 
-- `/start`: Start interaction with the bot and get a welcome message.
-- `/help`: Show help information.
-- `/suggest`: Start the process of suggesting a post for the channel. (Requires channel subscription)
-- `/feedback`: Send feedback or suggestions about the bot to the admins.
+## Release deployment
 
-### Admin Commands
+Pushes to `develop` run Go tests, vet, Compose validation, and an amd64 image build. They do not deploy. Publish a GitHub release such as `v0.1.0` from the tested commit, then run **Actions → Verify and deploy release → Run workflow** with the required `release_tag`. The workflow rejects missing, draft, prerelease, and malformed tags. It verifies the server host key, deploys the tag's exact commit, and reports the commit SHA, bot image ID, and database/bot health in its summary.
 
-- `/start`: Start interaction with the bot and get a welcome message.
-- `/help`: Show help information.
-- `/status`: Show bot status and current caption.
-- `/version`: Show bot version.
-- `/caption [text]`: Set or update the caption to be used for the next direct media post.
-- `/showcaption`: Show the currently active caption.
-- `/clearcaption`: Clear the currently active caption.
-- `/review`: Start reviewing pending suggestions.
-- (Direct messages): Send photos, videos, or media groups directly to the bot to post them to the channel. Text in the message will be used as the caption *unless* an active caption is set via `/caption`.
+Production Actions secrets are `SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_PORT`, `SSH_USER`, and `SERVER_PROJECT_PATH`. The host key fingerprint embedded in the workflow must be verified independently in the provider console before the first deployment or after a legitimate host-key change. The server checkout must be clean. Keep the server's `.env` outside Git and permission restricted.
 
-## Suggestion Workflow
+### Ubuntu 26 recovery
 
-1. A user subscribes to the channel defined by `CHANNEL_ID`.
-2. The user sends `/suggest` to the bot.
-3. The bot asks the user to send a photo or a media group (up to 10 photos).
-4. The user sends the media. The message text is stored as a private comment for the suggestion.
-5. The bot confirms receipt and stores the suggestion (including media file IDs and comment) in MongoDB with "pending" status.
-6. An admin (checked via channel status) uses `/review`.
-7. The bot presents the oldest pending suggestion (media + comment + submitter info) with Approve/Reject/Next buttons.
-8. Admin approves: The bot posts the media to the channel (using the suggestion's comment as caption if desired) and updates the suggestion status to "approved".
-9. Admin rejects: The bot updates the suggestion status to "rejected".
-10. Admin skips (Next): The bot shows the next pending suggestion.
+If MongoDB logs report a Linux kernel incompatibility, check `uname -r` and `docker logs --tail 80 vrcmemes-mongodb`. MongoDB 8.3.11 on this host rejected kernel `7.0.0-34-generic` after the Ubuntu 26.04 upgrade. Before changing the boot kernel, make and verify an offline backup of `vrcmemes-bot_mongodb_data` and `.env`, confirm provider console or rescue access, and record all running containers on the shared host. The installed `6.8.0-142-generic` kernel is the temporary recovery path. Boot it once, check MongoDB authentication and every previously running container, then make it persistent only after those checks pass. Recheck for a compatible maintained kernel by 2026-10-27.
 
-## Localization
+### Deployment troubleshooting
 
-The bot uses `github.com/nicksnyder/go-i18n/v2` for localization. Language files (`en.json`, `ru.json`) are located in `internal/locales/`. The default language is set via the `BOT_DEFAULT_LANGUAGE` environment variable (defaulting to `en` in `internal/locales/i18n.go`).
+| Failure | Likely cause | Next check |
+|---|---|---|
+| Compose reports missing MongoDB variables | `.env` lacks the required root values | Set both root variables and `MONGODB_URI`; run `docker compose -f docker-compose.yml config --quiet`. |
+| SSH fingerprint mismatch | Server identity changed or key was replaced | Stop deployment; compare the ED25519 fingerprint in the provider console with the workflow value. |
+| MongoDB is unhealthy | Kernel incompatibility, wrong password, or storage issue | Run `uname -r` and `docker logs --tail 80 vrcmemes-mongodb`; verify an authenticated database operation. |
+| Bot stops or restarts | Runtime URI, token, or Telegram polling error | Run `docker logs --tail 80 vrcmemes-bot-prod` and inspect `.env` without printing secrets. |
+| Workflow tag validation fails | Tag is absent, unpublished, draft, or prerelease | Publish the release, then rerun the workflow with the exact `vX.Y.Z` tag. |
 
-## Project Structure
+### Rollback
 
+The deploy workflow tags the previous bot image as `vrcmemes-bot:rollback` before building. To restore **only** the bot, create a temporary override on the server:
+
+```sh
+cat > /tmp/vrcmemes-bot-rollback.yml <<'EOF'
+services:
+  bot:
+    image: vrcmemes-bot:rollback
+EOF
+docker compose -f docker-compose.yml -f /tmp/vrcmemes-bot-rollback.yml up -d --no-deps --no-build bot
+docker compose -f docker-compose.yml ps
 ```
-.
-├── bot/                     # Core bot logic, Telegram API interaction, update loop
-├── internal/
-│   ├── auth/                # Admin checking logic
-│   ├── config/              # Configuration loading (.env)
-│   ├── database/            # MongoDB interaction (connection, models, repository interfaces)
-│   ├── handlers/            # Telegram message/command handlers (routing, initial processing)
-│   ├── locales/           # Localization files (en.json, ru.json) and i18n setup
-│   ├── mediagroups/       # Handling of Telegram media groups
-│   └── suggestions/       # Logic for suggestion handling, review process
-├── pkg/
-│   ├── telegoapi/         # Wrapper/interface for telego BotAPI (for easier mocking)
-│   └── utils/             # Utility functions (e.g., Markdown escaping)
-├── .github/workflows/     # GitHub Actions workflows (CI/CD)
-│   └── deploy.yml
-├── .air.toml                # Air configuration for hot-reload
-├── .env.example             # Example environment variables
-├── .gitignore               # Git ignore rules
-├── Dockerfile               # Docker build instructions (multi-stage)
-├── README.md                # This file
-├── docker-compose.yml       # Docker Compose setup (Production base)
-├── docker-compose.override.yml # Docker Compose overrides (Development)
-├── go.mod                   # Go module dependencies
-├── go.sum                   # Go module checksums
-└── main.go                  # Application entry point
-```
+
+This leaves the pinned MongoDB image and named volume untouched. Verify the bot logs and an administrator's `/status` reply. If the temporary kernel fails to boot, use the provider console to return to the previous kernel and check other host services; MongoDB may remain unavailable on that kernel. Never run `docker compose down -v` against the production stack.
 
 ## Development
 
-See the **Installation & Running with Docker** section for running in development mode using Docker Compose, which is the recommended approach.
-
-Manual development using `go run` or `air` is possible but requires manual setup of dependencies like MongoDB.
-
-## Error Tracking
-
-The bot uses Sentry for error tracking. Set `SENTRY_DSN` in your `.env` file to enable it.
-
-## Database
-
-The bot uses MongoDB to store user actions, published post logs, and suggestions. The Docker Compose setup includes a MongoDB service. Database credentials (`MONGO_INITDB_ROOT_USERNAME`, `MONGO_INITDB_ROOT_PASSWORD`) and the database name (`MONGODB_DATABASE`) are configured via `.env`.
-
-## Docker Details
-
-- **Multi-stage Build:** `Dockerfile` uses a builder stage for dependencies/compilation and a minimal final stage for the production image.
-- **Platform Aware:** The build automatically detects the target architecture (`amd64`, `arm64`).
-- **Development Environment:** `docker compose up` uses `docker-compose.override.yml` to run the `builder` stage, mounts local code, and uses `air` for hot-reloading.
-- **Production Environment:** `docker compose -f docker-compose.yml up` uses only the base configuration, builds the final lean image, and runs the compiled binary.
-- **MongoDB Service:** Included in Docker Compose for convenience.
-- **Configuration:** Environment variables are loaded from the `.env` file.
-
-## CI/CD
-
-This project uses GitHub Actions for testing and basic Continuous Deployment.
-
-- **Workflow:** `.github/workflows/deploy.yml`
-- **Trigger:** Pushes to the `develop` branch.
-- **Actions:**
-    1. Sets up Go.
-    2. Downloads dependencies.
-    3. Builds the project.
-    4. **Runs tests (`go test -v ./...`).**
-    5. Connects to the production server via SSH.
-    6. Pulls the latest changes from the `develop` branch.
-    7. Rebuilds and restarts the Docker containers using `docker-compose up -d --build`.
-
-### Required Secrets
-
-For the deployment workflow to function, the following secrets must be configured in the GitHub repository settings (`Settings` > `Secrets and variables` > `Actions`):
-
-- `SSH_PRIVATE_KEY`: Private SSH key to access the server.
-- `SSH_HOST`: Hostname or IP address of the server.
-- `SSH_USER`: Username for SSH connection.
-- `SERVER_PROJECT_PATH`: Absolute path to the project directory on the server.
+Run `go test ./...`, `go vet ./...`, and `go mod verify` before submitting changes. Run `go run .` after setting the required environment variables when developing without Docker.
 
 ## License
 

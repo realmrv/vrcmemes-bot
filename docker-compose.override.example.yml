@@ -1,13 +1,13 @@
 services:
   bot:
     build:
-      # Target the builder stage which includes Go and air
-      target: builder 
+      # Target the development stage which includes Go and air.
+      target: dev
     container_name: vrcmemes-bot-dev # Separate name for dev container
     volumes:
       # Mount local code into the container for live reload
       - .:/app
-    command: air -c .air.toml # Command to run air for live reloading
+    command: air
     # You might want to expose a port here if your app listens on one during development
     # ports:
     #   - "8080:8080"

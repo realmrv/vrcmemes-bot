@@ -4,38 +4,37 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 	"vrcmemes-bot/internal/config"
 
-	// "vrcmemes-bot/database/models" // No longer needed here
-
-	// "go.mongodb.org/mongo-driver/bson" // No longer needed here
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// DB var DB *mongo.Database // Commented out or remove if not used globally
-
 // ConnectDB establishes a connection to the MongoDB database using the provided configuration.
 // It returns the MongoDB client, database object, and an error if connection fails.
 func ConnectDB(cfg *config.Config) (*mongo.Client, *mongo.Database, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
 	opts := options.Client().ApplyURI(cfg.MongoDBURI).SetServerAPIOptions(serverAPI)
 
-	client, err := mongo.Connect(context.TODO(), opts)
+	client, err := mongo.Connect(ctx, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
 
-	// Send a ping to confirm a successful connection
-	var result bson.M
-	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{Key: "ping", Value: 1}}).Decode(&result); err != nil {
-		_ = client.Disconnect(context.TODO()) // Attempt to disconnect on ping failure
-		return nil, nil, fmt.Errorf("failed to ping MongoDB: %w", err)
+	db := client.Database(cfg.MongoDBDatabase)
+	// Listing collections verifies both connectivity and the runtime user's permissions.
+	if _, err := db.ListCollectionNames(ctx, bson.D{}); err != nil {
+		disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer disconnectCancel()
+		_ = client.Disconnect(disconnectCtx)
+		return nil, nil, fmt.Errorf("failed to authenticate MongoDB access: %w", err)
 	}
-	log.Println("Successfully connected and pinged MongoDB!")
-
-	db := client.Database(cfg.MongoDBDatabase) // Use MongoDBDatabase here
+	log.Println("Successfully authenticated MongoDB access.")
 
 	return client, db, nil
 }
